@@ -1,6 +1,6 @@
 # D2Next
 
-D2Next is a modernization project that turns the original D2MOO reverse-engineered Diablo II engine work into a portable 64-bit game client. A major part of the work was updating D2MOO's original 32-bit Windows-oriented code path so its core game libraries can build and run in a 64-bit host. The project keeps the original game logic readable and testable while adding a new renderer, frontend, SDL platform layer, Android package path, and in-process native game integration.
+D2Next turns the D2MOO reverse-engineered Diablo II engine into a portable 64-bit game client. It updates D2MOO's 32-bit Windows-oriented code so its core game libraries can build and run in a 64-bit host. The project keeps the original game logic readable and testable while adding a new renderer, frontend, SDL platform layer, Android package path, and in-process native game integration.
 
 This repository does not include Diablo II assets, binaries, or copyrighted game data. It requires legally owned Diablo II 1.10f / Lord of Destruction MPQ archives supplied by the user at runtime.
 
