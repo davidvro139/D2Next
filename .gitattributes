@@ -1,0 +1,11 @@
+# Text files are stored with LF line endings; each platform checks them out its own way.
+* text=auto
+# Shell scripts must keep LF everywhere (Linux, Android, the web build); Windows scripts keep CRLF.
+*.sh text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+# Binary files the repository holds (icons, images).
+*.png binary
+*.ico binary
+*.jpg binary

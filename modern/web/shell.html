@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D2Next</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090806; --panel: #15100b; --line: #4d3a20; --line2: #8b6d36;
+      --text: #ead9ad; --muted: #a8956c; --bad: #ef8d78; --good: #92d09f; --gold: #c7b377;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: radial-gradient(circle at 50% 0, #241910 0, var(--bg) 44rem); color: var(--text);
+      font-family: "Palatino Linotype", Palatino, Georgia, serif; }
+    body { display: flex; justify-content: center; }
+    #setup { width: min(46rem, 100%); padding: clamp(1.5rem, 6vh, 4rem) clamp(1rem, 4vw, 2rem) 3rem; }
+    h1 { font-size: clamp(2.4rem, 7vw, 3.6rem); font-weight: normal; letter-spacing: .16em; text-transform: uppercase; margin: 0; text-align: center; }
+    .tagline { text-align: center; color: var(--muted); margin: .3rem 0 2rem; }
+    .card { border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 94%, black); padding: 1.4rem; margin-bottom: 1rem; }
+    .card h2 { font-size: 1rem; font-weight: normal; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 .7rem; color: #f2dfac; display: flex; gap: .6rem; align-items: center; }
+    .step { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border: 1px solid var(--line2); border-radius: 50%; font-size: .85rem; color: var(--gold); }
+    .step.done { background: #3c5a37; border-color: #6b9a63; color: #dff5d8; }
+    p { line-height: 1.5; margin: .35rem 0; }
+    .muted { color: var(--muted); }
+    .small { font-size: .9rem; }
+    button { font: inherit; color: #f0dfb2; background: linear-gradient(#55391a, #33240f); border: 1px solid var(--line2); padding: .6rem 1.2rem; cursor: pointer; }
+    button:hover:not(:disabled) { filter: brightness(1.15); }
+    button:disabled { opacity: .45; cursor: default; }
+    button.big { width: 100%; font-size: 1.35rem; letter-spacing: .14em; text-transform: uppercase; padding: .9rem; }
+    button.link { background: none; border: none; padding: 0; color: var(--gold); text-decoration: underline; cursor: pointer; }
+    .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: .8rem; }
+    .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: .3rem .9rem; margin: .8rem 0 0; padding: 0; list-style: none;
+      font-family: Consolas, "Courier New", monospace; font-size: .85rem; }
+    .checks li::before { content: "\2717  "; color: var(--bad); }
+    .checks li.ok::before { content: "\2713  "; color: var(--good); }
+    .checks li.extra { color: var(--muted); }
+    .checks li.extra::before { content: "+  "; color: var(--muted); }
+    .drop { border: 1px dashed var(--line2); padding: 1rem; text-align: center; color: var(--muted); }
+    .drop.over { background: #22180d; color: var(--text); }
+    .saves { list-style: none; margin: .6rem 0 0; padding: 0; display: grid; gap: .3rem; }
+    .saves li { display: flex; justify-content: space-between; align-items: center; gap: .6rem; padding: .35rem .55rem; background: #100c08; border: 1px solid #2d2215; }
+    .saves button { padding: .2rem .6rem; font-size: .85rem; }
+    .problem { border-color: #7b3b31; }
+    .problem p { color: var(--bad); }
+    progress { width: 100%; height: .6rem; accent-color: var(--line2); }
+    details { margin-top: 1rem; }
+    summary { cursor: pointer; color: var(--muted); }
+    #log { white-space: pre-wrap; font: .78rem Consolas, monospace; color: #a99a78; max-height: 12rem; overflow: auto; background: #0c0906; border: 1px solid #2d2215; padding: .6rem; }
+    #loading { position: fixed; inset: 0; display: none; place-items: center; background: #000; z-index: 10; }
+    #loading .box { width: min(28rem, 90vw); text-align: center; }
+    #loading p { color: var(--muted); }
+    canvas.emscripten { display: none; background: #000; outline: none; }
+    body.running { display: block; overflow: hidden; background: #000; }
+    body.running #setup { display: none; }
+    body.running canvas.emscripten { display: block !important; width: 100vw; height: 100vh; }
+    body.loading #loading { display: grid; }
+    input[type=file] { display: none; }
+  </style>
+</head>
+<body>
+  <div id="setup">
+    <h1>D2Next</h1>
+    <p class="tagline">Diablo II 1.10, rebuilt, running in your browser. Nothing is uploaded: your game files stay on this computer.</p>
+
+    <div id="problems" class="card problem" hidden>
+      <h2>This browser cannot run D2Next</h2>
+      <div id="problem-list"></div>
+      <p class="muted small">Use a current Chrome or Edge (or Firefox 134 or newer) on a desktop computer.</p>
+    </div>
+
+    <div class="card" id="files-card">
+      <h2><span id="step1" class="step">1</span> Your Diablo II files</h2>
+      <p id="files-copy">Choose the folder where Diablo II (with Lord of Destruction, patched to 1.10) is installed. D2Next copies the game's archives
+        into this browser once, so next time you can play straight away.</p>
+      <ul id="checks" class="checks"></ul>
+      <div class="row">
+        <button id="pick-folder" disabled>Choose Diablo II Folder&hellip;</button>
+        <button id="pick-files" class="link" disabled>or pick the .mpq files</button>
+        <button id="use-server" class="link" hidden>use the MPQs on this server</button>
+      </div>
+      <div id="import-progress" hidden><p id="import-copy" class="muted small"></p><progress id="import-bar" max="1" value="0"></progress></div>
+    </div>
+
+    <div class="card">
+      <h2><span id="step2" class="step">2</span> Play</h2>
+      <p id="play-copy" class="muted">Loading the game engine&hellip;</p>
+      <div class="row"><button id="play" class="big" disabled>Play</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Characters</h2>
+      <p class="muted small">Characters you create are kept in this browser. Drop .d2s save files here to bring characters in, and download
+        them to keep a copy.</p>
+      <div id="drop" class="drop">Drop .d2s files here, or <button id="pick-saves" class="link" disabled>choose them</button></div>
+      <ul id="saves" class="saves"></ul>
+    </div>
+
+    <details>
+      <summary>Details and troubleshooting</summary>
+      <p class="muted small" id="storage-copy"></p>
+      <div class="row">
+        <button id="forget-mpqs" disabled>Forget stored game files</button>
+      </div>
+      <p class="muted small">Log:</p>
+      <pre id="log"></pre>
+    </details>
+  </div>
+
+  <div id="loading"><div class="box"><h1 style="font-size:2rem">D2Next</h1><p id="loading-copy">Loading&hellip;</p><progress id="loading-bar" max="1" value="0"></progress></div></div>
+
+  <input id="folder-input" type="file" webkitdirectory multiple>
+  <input id="files-input" type="file" multiple accept=".mpq,.MPQ">
+  <input id="saves-input" type="file" multiple accept=".d2s,.D2S">
+  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  <script>
+    // The archives the game needs, and the ones it uses when they are there (speech and music). The video archives are
+    // left out: the browser build cannot play the cinematics.
+    var REQUIRED = ['d2data.mpq', 'd2exp.mpq', 'd2char.mpq', 'd2sfx.mpq', 'patch_d2.mpq'];
+    var OPTIONAL = ['d2speech.mpq', 'd2xtalk.mpq', 'd2music.mpq', 'd2xmusic.mpq'];
+    var WANTED = REQUIRED.concat(OPTIONAL);
+    var MPQ_DIR = '/MPQ', SAVE_DIR = '/Save';
+
+    var runtimeReady = false, savesReady = false, started = false, stored = {}, serverHasMpqs = false;
+    function $(id) { return document.getElementById(id); }
+    function log() {
+      var text = Array.prototype.slice.call(arguments).join(' ');
+      console.log(text);
+      $('log').textContent += text + '\n';
+    }
+    function baseName(name) { return String(name || '').split(/[\\/]/).pop(); }
+    function megabytes(bytes) { return (bytes / 1048576).toFixed(0) + ' MB'; }
+
+    // ---- The archives: kept as blobs in IndexedDB (not in the game's file system), read into memory only to play. ----
+    var dbPromise = null;
+    function db() {
+      if (!dbPromise) dbPromise = new Promise(function (resolve, reject) {
+        var open = indexedDB.open('d2next', 1);
+        open.onupgradeneeded = function () { open.result.createObjectStore('mpq'); };
+        open.onsuccess = function () { resolve(open.result); };
+        open.onerror = function () { reject(open.error); };
+      });
+      return dbPromise;
+    }
+    function store(mode, work) {
+      return db().then(function (d) {
+        return new Promise(function (resolve, reject) {
+          var tx = d.transaction('mpq', mode), result;
+          result = work(tx.objectStore('mpq'));
+          tx.oncomplete = function () { resolve(result && 'result' in result ? result.result : undefined); };
+          tx.onerror = tx.onabort = function () { reject(tx.error); };
+        });
+      });
+    }
+    function storedList() {
+      return store('readonly', function (s) { return s.getAll(); }).then(function (rows) {
+        stored = {};
+        (rows || []).forEach(function (row) { stored[row.name] = row; });
+      });
+    }
+    function missing() { return REQUIRED.filter(function (name) { return !stored[name]; }); }
+
+    async function importArchives(files) {
+      // Only the archives the game reads, matched without case (installs differ: D2DATA.MPQ, Patch_D2.mpq).
+      var picked = {};
+      Array.prototype.forEach.call(files, function (file) {
+        var name = baseName(file.name).toLowerCase();
+        if (WANTED.indexOf(name) >= 0 && (!picked[name] || file.size > picked[name].size)) picked[name] = file;
+      });
+      var names = Object.keys(picked);
+      if (!names.length) { alert('No Diablo II archives (d2data.mpq, d2exp.mpq...) were found there.'); return; }
+      var total = names.reduce(function (sum, n) { return sum + picked[n].size; }, 0), done = 0;
+      $('import-progress').hidden = false;
+      setBusy(true);
+      try {
+        if (navigator.storage && navigator.storage.persist) await navigator.storage.persist();
+        for (var i = 0; i < names.length; ++i) {
+          var file = picked[names[i]];
+          $('import-copy').textContent = 'Copying ' + baseName(file.name) + ' (' + megabytes(file.size) + ')...';
+          var blob = file.slice(0, file.size, 'application/octet-stream');
+          await store('readwrite', function (s) { s.put({ name: names[i], size: file.size, blob: blob, added: Date.now() }, names[i]); });
+          done += file.size;
+          $('import-bar').value = done / total;
+          log('Stored ' + names[i] + ' (' + megabytes(file.size) + ')');
+        }
+        $('import-copy').textContent = 'Done.';
+      } catch (e) {
+        log('Copying failed: ' + e);
+        alert('The files could not be stored in this browser: ' + e + '\nThe disk may be full, or the browser is in private mode.');
+      }
+      await storedList();
+      setBusy(false);
+      refresh();
+    }
+    async function forgetArchives() {
+      if (!confirm('Remove the stored Diablo II archives from this browser? Your characters are kept.')) return;
+      await store('readwrite', function (s) { s.clear(); });
+      await storedList();
+      refresh();
+    }
+
+    // ---- Characters: /Save is the only persistent part of the game's file system (IDBFS, small). ----
+    function syncSaves(populate) {
+      return new Promise(function (resolve, reject) { FS.syncfs(!!populate, function (e) { e ? reject(e) : resolve(); }); });
+    }
+    async function mountSaves() {
+      if (!FS.analyzePath(SAVE_DIR).exists) FS.mkdir(SAVE_DIR);
+      FS.mount(FS.filesystems.IDBFS, {}, SAVE_DIR);
+      await syncSaves(true);
+      await migrateOldStorage();
+      savesReady = true;
+    }
+    function saveNames() {
+      try { return FS.readdir(SAVE_DIR).filter(function (n) { return /\.d2s$/i.test(n); }).sort(); } catch (e) { return []; }
+    }
+    async function importSaves(files) {
+      var count = 0;
+      for (var i = 0; i < files.length; ++i) {
+        var name = baseName(files[i].name);
+        if (!/\.(d2s|look)$/i.test(name)) continue;
+        FS.writeFile(SAVE_DIR + '/' + name, new Uint8Array(await files[i].arrayBuffer()));
+        ++count;
+      }
+      if (count) { await syncSaves(false); log('Imported ' + count + ' save file(s).'); }
+      refresh();
+    }
+    function download(name) {
+      var blob = new Blob([FS.readFile(SAVE_DIR + '/' + name)], { type: 'application/octet-stream' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    }
+    async function removeSave(name) {
+      if (!confirm('Delete ' + name.replace(/\.d2s$/i, '') + ' from this browser? Download it first to keep a copy.')) return;
+      ['.d2s', '.look'].forEach(function (ext) { try { FS.unlink(SAVE_DIR + '/' + name.replace(/\.d2s$/i, ext)); } catch (e) {} });
+      await syncSaves(false);
+      refresh();
+    }
+
+    // The first version of this page kept everything in an IDBFS mount at /persist (MPQ/ and Save/ inside). Its archives
+    // and saves move to the new places once, then that database is removed.
+    async function migrateOldStorage() {
+      if (!indexedDB.databases) return;
+      var dbs = await indexedDB.databases();
+      if (!dbs.some(function (d) { return d.name === '/persist'; })) return;
+      log('Moving files from the previous version of this page...');
+      try {
+        FS.mkdir('/persist');
+        FS.mount(FS.filesystems.IDBFS, {}, '/persist');
+        await new Promise(function (resolve, reject) { FS.syncfs(true, function (e) { e ? reject(e) : resolve(); }); });
+        var list = function (dir) { try { return FS.readdir(dir).filter(function (n) { return n !== '.' && n !== '..'; }); } catch (e) { return []; } };
+        list('/persist/Save').forEach(function (n) { FS.writeFile(SAVE_DIR + '/' + n, FS.readFile('/persist/Save/' + n)); });
+        var archives = list('/persist/MPQ').map(function (n) {
+          var bytes = FS.readFile('/persist/MPQ/' + n);
+          return new File([bytes], n);
+        });
+        FS.unmount('/persist');
+        await syncSaves(false);
+        if (archives.length) await importArchives(archives);
+        indexedDB.deleteDatabase('/persist');
+        log('Moved ' + archives.length + ' archive(s) from the previous version.');
+      } catch (e) {
+        log('Could not move the previous files: ' + e);
+      }
+    }
+
+    // ---- Playing ----
+    function setBusy(busy) {
+      ['pick-folder', 'pick-files', 'pick-saves', 'play', 'forget-mpqs'].forEach(function (id) { $(id).disabled = busy; });
+      if (!busy) refresh();
+    }
+    function resizeCanvas() {
+      var canvas = $('canvas'), ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(window.innerWidth * ratio));
+      canvas.height = Math.max(1, Math.floor(window.innerHeight * ratio));
+    }
+    async function play(fromServer) {
+      if (started) return;
+      started = true;
+      document.body.classList.add('loading');
+      try {
+        if (!FS.analyzePath(MPQ_DIR).exists) FS.mkdir(MPQ_DIR);
+        var names = fromServer ? REQUIRED.slice() : Object.keys(stored);
+        var total = names.reduce(function (sum, n) { return sum + (fromServer ? 0 : stored[n].size); }, 0), done = 0;
+        for (var i = 0; i < names.length; ++i) {
+          $('loading-copy').textContent = 'Loading ' + names[i] + '...';
+          var bytes;
+          if (fromServer) {
+            var response = await fetch('MPQ/' + names[i]);
+            if (!response.ok) throw new Error(names[i] + ': ' + response.status);
+            bytes = new Uint8Array(await response.arrayBuffer());
+            $('loading-bar').value = (i + 1) / names.length;
+          } else {
+            bytes = new Uint8Array(await stored[names[i]].blob.arrayBuffer());
+            done += bytes.length;
+            $('loading-bar').value = total ? done / total : 1;
+          }
+          // canOwn: the file system keeps this array instead of copying it (the archives are hundreds of megabytes).
+          var stream = FS.open(MPQ_DIR + '/' + names[i], 'w');
+          FS.write(stream, bytes, 0, bytes.length, 0, true);
+          FS.close(stream);
+        }
+        $('loading-copy').textContent = 'Starting the game...';
+        await new Promise(function (resolve) { setTimeout(resolve, 30); });
+        document.body.classList.remove('loading');
+        document.body.classList.add('running');
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        $('canvas').focus();
+        log('Starting D2Next');
+        callMain(['--native']);
+      } catch (e) {
+        started = false;
+        document.body.classList.remove('loading', 'running');
+        log('Could not start: ' + (e && e.stack ? e.stack : e));
+        alert('D2Next could not start: ' + e);
+        refresh();
+      }
+    }
+
+    // ---- What the page shows ----
+    function refresh() {
+      var checks = $('checks');
+      checks.textContent = '';
+      REQUIRED.forEach(function (name) {
+        var li = document.createElement('li'); li.textContent = name; if (stored[name]) li.className = 'ok'; checks.appendChild(li);
+      });
+      OPTIONAL.forEach(function (name) {
+        if (!stored[name]) return;
+        var li = document.createElement('li'); li.textContent = name; li.className = 'ok extra'; checks.appendChild(li);
+      });
+      var lacking = missing(), haveFiles = lacking.length === 0;
+      $('step1').className = 'step' + (haveFiles ? ' done' : '');
+      $('step1').textContent = haveFiles ? '✓' : '1';
+      $('files-copy').hidden = haveFiles;
+      $('pick-folder').textContent = haveFiles ? 'Choose a Different Folder…' : 'Choose Diablo II Folder…';
+      $('use-server').hidden = haveFiles || !serverHasMpqs;
+      var ready = runtimeReady && savesReady && haveFiles;
+      $('play').disabled = !ready || started;
+      $('play-copy').textContent = !runtimeReady ? 'Loading the game engine…'
+        : !savesReady ? 'Opening this browser’s storage…'
+        : !haveFiles ? 'Step 1 first: still missing ' + lacking.join(', ') + '.'
+        : 'Ready. Your characters and the game’s menus are inside.';
+      ['pick-folder', 'pick-files', 'pick-saves', 'forget-mpqs'].forEach(function (id) { $(id).disabled = !runtimeReady || !savesReady; });
+      var list = $('saves');
+      list.textContent = '';
+      if (savesReady) saveNames().forEach(function (name) {
+        var li = document.createElement('li');
+        var label = document.createElement('span'); label.textContent = name.replace(/\.d2s$/i, '');
+        var buttons = document.createElement('span');
+        var get = document.createElement('button'); get.textContent = 'Download'; get.onclick = function () { download(name); };
+        var del = document.createElement('button'); del.textContent = 'Delete'; del.onclick = function () { removeSave(name); };
+        buttons.appendChild(get); buttons.appendChild(document.createTextNode(' ')); buttons.appendChild(del);
+        li.appendChild(label); li.appendChild(buttons); list.appendChild(li);
+      });
+      var size = Object.keys(stored).reduce(function (sum, n) { return sum + stored[n].size; }, 0);
+      $('storage-copy').textContent = 'Stored game files: ' + megabytes(size) + '. They are kept by this browser for this site only; clearing the site’s data removes them (and your characters, so download those first).';
+    }
+
+    // ---- What the browser must support ----
+    function problems() {
+      var list = [];
+      if (typeof WebAssembly !== 'object') list.push('WebAssembly is not available.');
+      // A module declaring 64-bit memory: the game is built for WebAssembly Memory64.
+      else if (!WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 5, 3, 1, 4, 1]))) list.push('WebAssembly 64-bit memory (Memory64) is not supported.');
+      if (!document.createElement('canvas').getContext('webgl2')) list.push('WebGL 2 is not available.');
+      if (!window.indexedDB) list.push('Browser storage (IndexedDB) is not available. Private windows often turn it off.');
+      return list;
+    }
+    var blockers = problems();
+    if (blockers.length) {
+      $('problems').hidden = false;
+      $('problem-list').innerHTML = blockers.map(function (p) { return '<p>' + p + '</p>'; }).join('');
+    }
+
+    var Module = {
+      canvas: $('canvas'),
+      print: log,
+      printErr: log,
+      setStatus: function (text) { if (text) log(text); },
+      // The player left the game from its menus (Exit): back to this page, freshly loaded.
+      onGameExit: function () { FS.syncfs(false, function () { location.reload(); }); },
+      onAbort: function (what) {
+        log('Aborted: ' + what);
+        document.body.classList.remove('running', 'loading');
+        alert('D2Next stopped unexpectedly: ' + what + '\nReload the page to try again.');
+      },
+      onRuntimeInitialized: function () {
+        // With this (non-modular) build FS and callMain are globals; older builds only had them on Module.
+        if (typeof window.FS === 'undefined') window.FS = Module.FS;
+        if (typeof window.callMain === 'undefined') window.callMain = Module.callMain;
+        runtimeReady = true;
+        log('Engine ready.');
+        mountSaves().catch(function (e) { log('Storage failed: ' + e); }).then(refresh);
+      }
+    };
+
+    $('pick-folder').onclick = function () { $('folder-input').click(); };
+    $('pick-files').onclick = function () { $('files-input').click(); };
+    $('pick-saves').onclick = function () { $('saves-input').click(); };
+    $('folder-input').onchange = function () { importArchives(this.files); this.value = ''; };
+    $('files-input').onchange = function () { importArchives(this.files); this.value = ''; };
+    $('saves-input').onchange = function () { importSaves(this.files); this.value = ''; };
+    $('play').onclick = function () { play(false); };
+    $('use-server').onclick = function () { play(true); };
+    $('forget-mpqs').onclick = forgetArchives;
+    var drop = $('drop');
+    drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
+    drop.addEventListener('drop', function (e) {
+      e.preventDefault(); drop.classList.remove('over');
+      if (savesReady) importSaves(e.dataTransfer.files);
+    });
+    // Archives dropped anywhere else on the page are taken as game files.
+    document.addEventListener('dragover', function (e) { e.preventDefault(); });
+    document.addEventListener('drop', function (e) {
+      if (drop.contains(e.target) || started) return;
+      e.preventDefault();
+      if (runtimeReady) importArchives(e.dataTransfer.files);
+    });
+    window.addEventListener('beforeunload', function () { if (savesReady) try { FS.syncfs(false, function () {}); } catch (e) {} });
+
+    storedList().then(refresh).catch(function (e) { log('Storage unavailable: ' + e); });
+    // A developer server (Play-Web.cmd next to the project's MPQ folder) offers its own archives.
+    fetch('MPQ/d2data.mpq', { method: 'HEAD' }).then(function (r) { serverHasMpqs = r.ok; refresh(); }).catch(function () {});
+    if (new URLSearchParams(location.search).get('autostart') === 'server') {
+      var wait = setInterval(function () { if (runtimeReady && savesReady) { clearInterval(wait); play(true); } }, 200);
+    }
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

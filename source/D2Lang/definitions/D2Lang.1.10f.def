@@ -1,0 +1,65 @@
+LIBRARY		D2Lang
+EXPORTS
+    ??0Unicode@@QAE@G@Z @10014 ; Unicode::Unicode(unsigned short)
+    ??4Unicode@@QAEAAU0@ABU0@@Z @10015 ; Unicode& Unicode::Unicode(const Unicode&)
+    ??BUnicode@@QBEGXZ @10016 ; Unicode::unsigned short() const
+    ??_FUnicode@@QAEXXZ @10017 ; Unicode::`default constructor closure` 
+;   D2LANG_10018 @10018 ; ?Personalize@Unicode@@SIXPAU1@PBU1@1HW4ELANGUAGE@@@Z
+    ?_toLowerTable@Unicode@@0PAGA @10019 ; Unicode::_toLowerTable
+    ?_toUpperTable@Unicode@@0PAGA @10020 ; Unicode::_toUpperTable
+    ?compare@Unicode@@QBEHU1@@Z @10021 ; Unicode::compare
+    ?compare@Unicode@@SIHU1@0@Z @10022 ; static Unicode::compare
+    ?directionality@Unicode@@QAE?AW4Direction@1@XZ @10023 ; Unicode::directionality
+    ?isASCII@Unicode@@QBEHXZ @10024 ; Unicode::isASCII
+    ?isAlpha@Unicode@@QBEHXZ @10025 ; Unicode::isAlpha
+;   D2LANG_10026 @10026 ; ?isLeftToRight@Unicode@@QBEHXZ
+    ?isLineBreak@Unicode@@SIHPBU1@I@Z @10027 ; Unicode::isLineBreak
+    ?isNewline@Unicode@@QBEHXZ @10028 ; Unicode::isNewline
+    ?isPipe@Unicode@@QBEHXZ @10029 ; Unicode::isPipe
+    ?isWhitespace@Unicode@@QBEHXZ @10030 ; Unicode::isWhitespace
+    ?isWordEnd@Unicode@@SIHPBU1@I@Z @10031 ; Unicode::isWordEnd
+;   D2LANG_10032 @10032 ; ?loadSysMap@Unicode@@SIHPAUHD2ARCHIVE__@@PBD@Z
+    ?sprintf@Unicode@@SAXHPAU1@PBU1@ZZ @10033 ; Unicode::sprintf
+    ?strcat@Unicode@@SIPAU1@PAU1@PBU1@@Z @10034 ; Unicode::strcat
+    ?strchr@Unicode@@SIPAU1@PBU1@U1@@Z @10035 ; Unicode::strchr
+    ?strcmp@Unicode@@SIHPBU1@0@Z @10036 ; Unicode::strcmp
+;   D2LANG_10037 @10037 ; ?strcoll@Unicode@@SIHPBU1@0@Z
+    ?strcpy@Unicode@@SIPAU1@PAU1@PBU1@@Z @10038 ; Unicode::strcpy
+    ?stricmp@Unicode@@SIHPBU1@0@Z @10039 ; Unicode::stricmp
+    ?strlen@Unicode@@SIHPBU1@@Z @10040 ; Unicode::strlen
+    ?strncat@Unicode@@SIPAU1@PAU1@PBU1@H@Z @10041 ; Unicode::strncat
+    ?strncmp@Unicode@@SIHPBU1@0I@Z @10042 ; Unicode::strncmp
+;   D2LANG_10043 @10043 ; ?strncoll@Unicode@@SIHPBU1@0H@Z
+    ?strncpy@Unicode@@SIPAU1@PAU1@PBU1@H@Z @10044 ; Unicode::strncpy
+    ?strnicmp@Unicode@@SIHPBU1@0I@Z @10045 ; Unicode::strnicmp
+    ?strstr@Unicode@@SIPAU1@PBU1@0@Z @10046 ; Unicode::strstr
+;   D2LANG_10047 @10047 ; ?strstri@Unicode@@SIPAU1@PBU1@0@Z
+;   D2LANG_10048 @10048 ; ?sys2Unicode@Unicode@@SIPAU1@PAU1@PBDH@Z
+;   D2LANG_10049 @10049 ; ?sysWidth@Unicode@@SIKPBU1@H@Z
+    ?toLower@Unicode@@QBE?AU1@XZ @10050 ; Unicode::toLower
+    ?toUnicode@Unicode@@SIPAU1@PAU1@PBDH@Z @10051 ; Unicode::toUnicode
+    ?toUpper@Unicode@@QBE?AU1@XZ @10052 ; Unicode::toUpper
+    ?toUtf@Unicode@@SIPADPADPBU1@H@Z @10053 ; Unicode::toUtf
+;   D2LANG_10054 @10054 ; ?unicode2Sys@Unicode@@SIPADPADPBU1@H@Z
+    ?unicode2Win@Unicode@@SIPADPADPBU1@H@Z @10055 ; Unicode::unicode2Win
+;   D2LANG_10056 @10056 ; ?unicodeWidth@Unicode@@SIKPBDH@Z
+;   D2LANG_10057 @10057 ; ?unicodenwidth@Unicode@@SIIPBDH@Z
+;   D2LANG_10058 @10058 ; ?unloadSysMap@Unicode@@SIXXZ
+    ?utf8ToUnicode@Unicode@@SIPAU1@PAU1@PBDH@Z @10059 ; Unicode::utf8ToUnicode
+;   D2LANG_10060 @10060 ; ?utfnwidth@Unicode@@SIIPBU1@H@Z
+;   D2LANG_10061 @10061 ; ?utfwidth@Unicode@@QBEHXZ
+    ?win2Unicode@Unicode@@SIPAU1@PAU1@PBDH@Z @10062 ; Unicode::win2Unicode
+;   D2LANG_10000 @10000 NONAME
+;   D2LANG_10001 @10001 NONAME
+;   D2LANG_10002 @10002 NONAME
+    D2LANG_GetStringByReferenceString @10003 NONAME
+    D2LANG_GetStringFromTblIndex @10004 NONAME
+    CRC16_CalculateChecksum @10005 NONAME
+;   D2LANG_10006 @10006 NONAME
+    STRTABLE_GetLanguage @10007 NONAME
+;   D2LANG_10008 @10008 NONAME
+    STR_GroupIntDigits @10009 NONAME
+    STR_GroupUintDigits @10010 NONAME
+;   D2LANG_10011 @10011 NONAME
+;   D2LANG_10012 @10012 NONAME
+    D2LANG_GetTblIndex @10013 NONAME
