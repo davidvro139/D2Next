@@ -4,6 +4,10 @@ D2Next turns the D2MOO reverse-engineered Diablo II engine into a portable 64-bi
 
 This repository does not include Diablo II assets, binaries, or copyrighted game data. It requires legally owned Diablo II 1.10f / Lord of Destruction MPQ archives supplied by the user at runtime.
 
+![D2Next rendering the Rogue Encampment with the player character and game HUD](docs/images/gameplay.png)
+
+*Act I Rogue Encampment, rendered from user-supplied Diablo II data.*
+
 ## Portfolio Summary
 
 D2Next demonstrates a full-stack native game modernization effort:
