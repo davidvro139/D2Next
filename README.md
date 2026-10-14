@@ -1,6 +1,6 @@
 # D2Next
 
-D2Next turns the D2MOO reverse-engineered Diablo II engine into a portable 64-bit game client. It updates D2MOO's 32-bit Windows-oriented code so its core game libraries can build and run in a 64-bit host. The project keeps the original game logic readable and testable while adding a new renderer, frontend, SDL platform layer, Android package path, and in-process native game integration.
+D2Next is a Diablo II game client for modern 64-bit systems. It loads user-supplied game assets and brings them to life with its own frontend, map and character rendering, game HUD, SDL input and audio, and desktop and mobile controls. The project has Windows, Linux, Android, and Web build paths, with Direct3D 11 and OpenGL ES / WebGL rendering. Native game sessions run inside the client through a 64-bit port of D2MOO's game libraries.
 
 This repository does not include Diablo II assets, binaries, or copyrighted game data. It requires legally owned Diablo II 1.10f / Lord of Destruction MPQ archives supplied by the user at runtime.
 
@@ -8,14 +8,14 @@ This repository does not include Diablo II assets, binaries, or copyrighted game
 
 *Act I Rogue Encampment, rendered from user-supplied Diablo II data.*
 
-## Portfolio Summary
+## What D2Next Adds
 
-D2Next demonstrates a full-stack native game modernization effort:
+D2Next brings together the client, rendering, platform support, and native game integration:
 
-- Updated D2MOO's original 32-bit engine code for 64-bit builds, including pointer-size assumptions, exported ordinal checks, host integration, and compatibility fixes.
-- Ported a legacy Windows-oriented C++ engine path toward portable SDL and Android targets.
-- Added a modern client shell with SDL3, Direct3D 11, OpenGL ES, touch input, audio, and frontend state.
-- Linked D2MOO's game libraries directly into the modern client for lower startup cost and simpler debugging.
+- Built a client frontend with asset decoding, map and character rendering, game UI, SDL3 input and audio, and Direct3D 11 and OpenGL ES / WebGL renderers.
+- Added build paths for Windows, Linux, Android, and the Web, including desktop SDL support and Android touch controls.
+- Connected native game sessions and local character saves directly to the client.
+- Ported D2MOO's game libraries to 64-bit, addressing pointer-size assumptions, exported ordinal checks, host integration, and compatibility issues.
 - Built an Android APK pipeline using CMake, the Android NDK, SDL's Java activity, `aapt2`, `d8`, `zipalign`, and `apksigner`.
 - Added an in-app Android document picker so user-owned Diablo II archives can stay in a shared folder (Documents/D2Next) without requiring access to the restricted `Android/data` folder.
 - Implemented deterministic simulation and rendering test hooks for regression checks.
