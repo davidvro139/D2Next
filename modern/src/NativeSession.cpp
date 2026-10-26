@@ -508,7 +508,7 @@ void GameSession::describe(Reply& output,int32_t client) {
         constexpr uint32_t light=uint32_t('l')|(uint32_t('i')<<8)|(uint32_t('t')<<16);
         for(int i=0;i<16;++i)components[i]=(i>=5&&i<=7)?0:light;
         if(!who->pInventory)return;
-        for(int location:{1,3,4,5}) { // head, torso, active right/left hand
+        for(int location:{1,3}) { // head, torso
             auto item=ordinal<D2UnitStrc*(__stdcall*)(D2InventoryStrc*,int)>(common,10257)(who->pInventory,location);
             if(!item)continue;
             uint8_t color=0;
@@ -532,6 +532,18 @@ void GameSession::describe(Reply& output,int32_t client) {
                     if(colored&&componentTrans&&componentColor)colorOf(who,item,0,componentTrans[component],componentColor[component]);
                 }
             }
+        }
+        // The hands by layer, as the composit picks them (INVENTORY_GetCompositItem): the left-click weapon on RH, a second
+        // weapon on LH, a shield on SH. UNITS_GetItemComponentId (the 0x9C packet's component) says LH for a Barbarian's or
+        // Assassin's shield, where their COFs have only an SH layer, so the shield was never drawn.
+        for(int component:{5,6,7}) {
+            auto item=ordinal<D2UnitStrc*(__stdcall*)(D2InventoryStrc*,int)>(common,10259)(who->pInventory,component);
+            if(!item)continue;
+            uint8_t color=0;
+            const bool colored=ordinal<uint8_t*(__stdcall*)(D2UnitStrc*,D2UnitStrc*,uint8_t*,int)>(common,10829)(who,item,&color,0)!=nullptr;
+            components[component]=ordinal<uint32_t(__stdcall*)(D2UnitStrc*)>(common,10747)(item)&0xffffff;
+            if(colored)coloredComponents|=1u<<component;
+            if(colored&&componentTrans&&componentColor)colorOf(who,item,0,componentTrans[component],componentColor[component]);
         }
     };
     lookOf(unit,int(info.nClassId),output.weaponClass,output.components,output.coloredComponents,output.componentTrans,output.componentColor);
