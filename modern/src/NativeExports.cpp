@@ -65,6 +65,7 @@ const Export exports[]={
     {Library::D2Common,10088,address(&DUNGEON_GetDrlgFromAct)},
     {Library::D2Common,10120,address(&COLLISION_CheckMaskWithSizeXY)},
     {Library::D2Common,10257,address(&INVENTORY_GetItemFromBodyLoc)},
+    {Library::D2Common,10259,address(&INVENTORY_GetCompositItem)},
     {Library::D2Common,10262,address(&INVENTORY_GetCursorItem)},
     {Library::D2Common,10277,address(&INVENTORY_GetFirstItem)},
     {Library::D2Common,10304,address(&INVENTORY_GetNextItem)},
