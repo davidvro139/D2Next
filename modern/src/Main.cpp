@@ -300,7 +300,9 @@ static int run(int argc,wchar_t** argv) {
         struct ClientArea {int right=0,bottom=0;};
         WEB_STATIC std::function<ClientArea()> clientRect;
         clientRect=[&]{ClientArea area;window->clientSize(area.right,area.bottom);return area;};
-        WEB_STATIC Renderer renderer(d2::makeGpuBackend(*window,software));
+        // Like the window, the renderer (and its GPU context) lasts for the whole program: a second OpenGL context on the
+        // same window after Back to Main Menu made the Adreno driver abort in eglMakeCurrent.
+        static Renderer renderer(d2::makeGpuBackend(*window,software));
         renderer.uiAssets=&uiAssets; // the menus use its cursor too
         WEB_STATIC std::unique_ptr<d2::Audio> audio; // created for real play only (not in captures and tests)
         auto applyAudioSettings=[&] {
@@ -446,6 +448,7 @@ static int run(int argc,wchar_t** argv) {
             }
             if(chosen.empty())return 0;
             nativeSave=chosen;lastPlayed=chosen;
+            walk=true; // as for a character found at startup: a character chosen (or created) in the menus is played, not viewed
             std::cout<<"Chosen character: "<<nativeSave.string()<<"\n";
         }
         WEB_STATIC d2::Bytes bytes;bytes=nativeDlls.empty()?archives.read(asset):d2::Bytes{};
