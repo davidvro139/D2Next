@@ -102,6 +102,7 @@ static void scriptedClick(int x,int y,unsigned button=0) {
 // After Back to Main Menu (gameMain runs this again): the character just played, chosen first in character select.
 static std::filesystem::path lastPlayed;
 static bool backFromGame=false;
+static bool backToCharacterSelect=false; // the game was left by Save and Exit Game
 // A TCP/IP game from the menu that could not start: the menus open again on the TCP/IP screen with the failure reason.
 static std::optional<std::string> lanFailure;
 static int run(int argc,wchar_t** argv) {
@@ -371,7 +372,7 @@ static int run(int argc,wchar_t** argv) {
                     loadingFront->setMusicPlayer([&](const std::string& path){audio->music(path);});
                     audio->music(menuMusic);
                 }
-                if(backFromGame)loadingFront->showMainMenu();
+                if(backFromGame) {if(backToCharacterSelect)loadingFront->showCharacterSelect();else loadingFront->showMainMenu();}
                 // TCP/IP games (OTHER MULTIPLAYER), where the game runs in this program; the address joined last is
                 // remembered in the save folder, as the original keeps it in the registry.
                 const auto lastAddressFile=profile/L"LastTcpIp.txt";
@@ -2064,7 +2065,9 @@ static int run(int argc,wchar_t** argv) {
                     // As gameMain does on the desktop: the game is closed (D2Game saves the character), the client's state is
                     // reset and the menus start again.
                     world.reset();
+                    backToCharacterSelect=leaveToCharacterSelect;
                     resetClientState();
+                    leaveToCharacterSelect=false;
                     backFromGame=true;
                     std::cout<<"Back to the main menu"<<std::endl;
                     webRun();
@@ -2091,7 +2094,9 @@ int gameMain(int argc,wchar_t** argv) {
         const bool again=leaveToMainMenu||(code==0&&testReturns-->0);
         world.reset();
         if(!again)d2::endProgram(code);
+        backToCharacterSelect=leaveToCharacterSelect;
         resetClientState();
+        leaveToCharacterSelect=false;
         backFromGame=true;
         std::cout<<"Back to the main menu"<<std::endl;
     }

@@ -57,6 +57,7 @@ inline GameMenuPage gameMenuPage=GameMenuPage::Closed;
 inline std::vector<GameMenuRegion> gameMenuRegions;
 inline int gameMenuSelection=0,gameMenuPressed=0;
 std::vector<std::pair<int,std::string>> gameMenuItems(); // the Esc menu page's lines (action, caption), Input.cpp
+inline bool leaveToCharacterSelect=false; // Save and Exit Game: as leaveToMainMenu, the menus starting at the character select
 inline bool leaveToMainMenu=false; // the Esc menu's Back to Main Menu: the game loop ends and the menus start again
 void resetClientState(); // everything above back to how a new game starts (after leaving one for the main menu)
 inline d2::Audio* gameAudio=nullptr;
