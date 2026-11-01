@@ -57,7 +57,7 @@ public:
     Screen screen() const {return screen_;}
     bool quit() const {return quit_;}
     void showMainMenu(){screen_=Screen::MainMenu;} // back from a game: the main menu, not the title screen
-    void showCharacterSelect(){screen_=Screen::CharacterSelect;} // tests: straight to the characters
+    void showCharacterSelect(){screen_=Screen::CharacterSelect;lan_=Lan::None;} // tests, and back from Save and Exit Game
     void showCredits(){screen_=Screen::Credits;}                 // tests: the credits
     void setMovieAudioPlayer(MovieAudioPlayer player){movieAudioPlayer_=std::move(player);}
     void setSoundPlayer(SoundPlayer player){soundPlayer_=std::move(player);}
