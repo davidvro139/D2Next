@@ -812,7 +812,12 @@ public final class D2NextActivity extends SDLActivity {
 
     private void copyFromDocument(Uri tree, Uri source, File destination) throws Exception {
         long size = documentSize(source);
-        if (destination.exists() && size >= 0 && destination.length() == size && size > 0) {
+        // Skip an explicitly empty character before opening the provider stream.
+        if (size == 0 && destination.getName().toLowerCase(Locale.ROOT).endsWith(".d2s")) {
+            return;
+        }
+        if (destination.exists() && size >= 0 && destination.length() == size && size > 0
+                && sameContent(source, destination)) {
             return;
         }
         File temporary = new File(destination.getPath() + ".importing");
@@ -830,26 +835,41 @@ public final class D2NextActivity extends SDLActivity {
             temporary.delete();
             throw e;
         }
-        if (destination.exists() && !destination.delete()) {
+        try {
+            SaveFileImport.finish(temporary, destination, size,
+                destination.getName().toLowerCase(Locale.ROOT).endsWith(".d2s"));
+        } catch (Exception error) {
             temporary.delete();
-            throw new IllegalStateException("Cannot replace " + destination.getName());
+            throw error;
         }
-        if (!temporary.renameTo(destination)) {
-            temporary.delete();
-            throw new IllegalStateException("Cannot save " + destination.getName());
+    }
+
+    private boolean sameContent(Uri document, File file) {
+        try (InputStream a = getContentResolver().openInputStream(document); InputStream b = new java.io.FileInputStream(file)) {
+            if (a == null) {
+                return false;
+            }
+            return SaveFileImport.sameContent(a, b);
+        } catch (Exception e) {
+            return false;
         }
     }
 
     private void copyToDocument(Uri tree, Uri parent, File source) throws Exception {
         Uri existing = findChild(tree, parent, source.getName());
-        if (existing != null && documentSize(existing) == source.length() && source.length() > 0) {
+        // The same size is not the same save (a character saved again often keeps its size): the bytes are compared.
+        if (existing != null && documentSize(existing) == source.length() && source.length() > 0 && sameContent(existing, source)) {
             return;
         }
-        if (existing != null && !DocumentsContract.deleteDocument(getContentResolver(), existing)) {
-            throw new IllegalStateException("Cannot replace " + source.getName());
+        // Written to a temporary document first, and only then put in place of the old copy: the app killed midway leaves
+        // the old copy whole (an empty copy would be imported over the character on the next start).
+        String temporaryName = source.getName() + ".exporting";
+        Uri stale = findChild(tree, parent, temporaryName);
+        if (stale != null) {
+            DocumentsContract.deleteDocument(getContentResolver(), stale);
         }
         Uri target = DocumentsContract.createDocument(getContentResolver(), asDocumentUri(tree, parent), "application/octet-stream",
-            source.getName());
+            temporaryName);
         if (target == null) {
             throw new IllegalStateException("Cannot create " + source.getName() + " in the selected folder");
         }
@@ -863,6 +883,12 @@ public final class D2NextActivity extends SDLActivity {
                 output.write(buffer, 0, count);
             }
             output.flush();
+        }
+        if (existing != null && !DocumentsContract.deleteDocument(getContentResolver(), existing)) {
+            throw new IllegalStateException("Cannot replace " + source.getName());
+        }
+        if (DocumentsContract.renameDocument(getContentResolver(), target, source.getName()) == null) {
+            throw new IllegalStateException("Cannot rename " + temporaryName);
         }
     }
 
