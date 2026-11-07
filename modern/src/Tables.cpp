@@ -1,5 +1,9 @@
 #include "Tables.h"
 #include <algorithm>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <cctype>
 #include <functional>
 #include <sstream>
@@ -20,6 +24,8 @@ std::vector<std::string> split(std::string_view line,char separator) {
     return out;
 }
 constexpr const char* componentNames[16]={"HD","TR","LG","RA","LA","RH","LH","SH","S1","S2","S3","S4","S5","S6","S7","S8"};
+// monstats2.txt and D2Common's field descriptors use mixed-case Rav/Lav for the arm variants.
+constexpr const char* componentVariantNames[16]={"HDv","TRv","LGv","Rav","Lav","RHv","LHv","SHv","S1v","S2v","S3v","S4v","S5v","S6v","S7v","S8v"};
 }
 TextTable::TextTable(std::string_view text) {
     size_t at=0;bool header=true;
@@ -52,6 +58,7 @@ MonsterTable::MonsterTable(const Archives& archives) {
         if(match==visual.end())continue;
         MonsterSprite sprite;sprite.id=stats.cell(r,"Id");sprite.nameKey=stats.cell(r,"NameStr");sprite.code=lower(stats.cell(r,"Code"));
         sprite.baseWeapon=lower(stats2.cell(match->second,"BaseW"));if(sprite.baseWeapon.empty())sprite.baseWeapon="hth";
+        sprite.compositeDeath=stats2.cell(match->second,"compositeDeath")=="1";
         sprite.npc=stats.cell(r,"npc")=="1";sprite.monSound=lower(stats.cell(r,"MonSound"));
         if(const auto t=stats.cell(r,"TransLvl");!t.empty()&&std::isdigit(static_cast<unsigned char>(t[0])))sprite.transLvl=std::stoi(t);
         {
@@ -64,7 +71,7 @@ MonsterTable::MonsterTable(const Archives& archives) {
         }
         for(int i=0;i<16;++i) {
             if(stats2.cell(match->second,componentNames[i])!="1")continue;
-            auto variants=split(stats2.cell(match->second,std::string(componentNames[i])+"v"),',');
+            auto variants=split(stats2.cell(match->second,componentVariantNames[i]),',');
             // Every entry keeps its place (the game picks a piece by its index); "nil" is an empty place: no piece.
             for(auto v:variants) {
                 v.erase(std::remove_if(v.begin(),v.end(),[](char c){return c=='"'||c==' ';}),v.end());v=lower(v);
@@ -92,53 +99,151 @@ CharacterAppearance monsterAppearance(const MonsterSprite& sprite,uint32_t seed)
 }
 }
 namespace d2 {
+// The background loader: its own archives (StormLib handles are not shared between threads), a queue of work and the
+// finished animations, which beginFrame takes in on the game's thread.
+struct UnitArt::Loader {
+    struct Job {std::string key;uint32_t classId;Work work;std::function<void(std::unique_ptr<Animation>)> done;std::unique_ptr<Animation> result;};
+    std::filesystem::path root;
+    std::mutex lock;std::condition_variable wake;
+    std::deque<Job> wanted;std::vector<Job> ready;
+    bool stop=false;
+    std::thread thread;
+    explicit Loader(std::filesystem::path folder):root(std::move(folder)),thread([this]{run();}) {}
+    ~Loader(){{std::lock_guard<std::mutex> hold(lock);stop=true;}wake.notify_all();thread.join();}
+    void run() {
+        std::unique_ptr<Archives> archives;
+        for(;;) {
+            Job job;
+            {
+                std::unique_lock<std::mutex> hold(lock);
+                wake.wait(hold,[&]{return stop||!wanted.empty();});
+                if(stop)return;
+                job=std::move(wanted.front());wanted.pop_front();
+            }
+            try {
+                if(!archives)archives=std::make_unique<Archives>(root);
+                job.result=job.work(*archives);
+            } catch(const std::exception&) {job.result.reset();}
+            std::lock_guard<std::mutex> hold(lock);ready.push_back(std::move(job));
+        }
+    }
+};
+UnitArt::UnitArt(const Archives& archives,const Palette& palette):archives_(archives),palette_(palette),table_(archives) {}
+UnitArt::~UnitArt()=default;
+void UnitArt::loadInBackground() {if(!loader_)loader_=std::make_unique<Loader>(archives_.root());}
+bool UnitArt::load(uint32_t classId,Work work,std::function<void(std::unique_ptr<Animation>)> done) {
+    if(!loader_) {
+        std::unique_ptr<Animation> animation;
+        try {animation=work(archives_);} catch(const std::exception&) {animation.reset();}
+        done(std::move(animation));
+        return true;
+    }
+    return false;
+}
+UnitArt::CachedAnimation UnitArt::remember(std::unique_ptr<Animation> animation) {
+    size_t bytes=0;
+    if(animation)for(const auto& frame:animation->frames)
+        bytes+=frame.image.storedBytes()+frame.glow.storedBytes()+frame.shadowMask.storedBytes();
+    residentBytes_+=bytes;
+    return {std::move(animation),bytes,frame_,false};
+}
+size_t UnitArt::beginFrame(size_t maxBytes,size_t maxEntries,const std::function<void(const Animation&)>& beforeEvict) {
+    ++frame_;
+    if(loader_) {
+        std::vector<Loader::Job> arrived;
+        {std::lock_guard<std::mutex> hold(loader_->lock);arrived.swap(loader_->ready);}
+        for(auto& job:arrived) {
+            pending_.erase(job.key);
+            if(auto it=loadingClasses_.find(job.classId);it!=loadingClasses_.end()&&--it->second<=0)loadingClasses_.erase(it);
+            job.done(std::move(job.result));
+        }
+    }
+    size_t entries=cacheStats().entries;
+    if(residentBytes_<=maxBytes&&entries<=maxEntries)return 0;
+    std::vector<CachedAnimation*> cold;
+    auto collect=[&](auto& cache){for(auto& [key,entry]:cache)if(entry.lastFrame+1<frame_)cold.push_back(&entry);};
+    collect(cache_);collect(exact_);collect(players_);
+    std::sort(cold.begin(),cold.end(),[](const auto* a,const auto* b){return a->lastFrame<b->lastFrame;});
+    size_t removed=0;
+    for(auto* entry:cold) {
+        if(residentBytes_<=maxBytes&&entries<=maxEntries)break;
+        if(entry->animation&&beforeEvict)beforeEvict(*entry->animation);
+        residentBytes_-=entry->bytes;entry->evict=true;--entries;++removed;
+    }
+    auto erase=[](auto& cache){std::erase_if(cache,[](const auto& item){return item.second.evict;});};
+    erase(cache_);erase(exact_);erase(players_);
+    return removed;
+}
+// Queues the work once per key (in the background); the caller returns nullptr until done has stored the animation.
+#define D2_UNITART_QUEUE(KEYTEXT,CLASSID,WORK,DONE) \
+    do { \
+        if(load(CLASSID,WORK,DONE))break; \
+        const std::string queuedKey_=KEYTEXT; /* not "text": a caller passing its own text would copy it into itself */ \
+        if(pending_.insert(queuedKey_).second) { \
+            ++loadingClasses_[CLASSID]; \
+            {std::lock_guard<std::mutex> hold(loader_->lock);loader_->wanted.push_back({queuedKey_,CLASSID,WORK,DONE,nullptr});} \
+            loader_->wake.notify_one(); \
+        } \
+        return nullptr; \
+    } while(0)
 const Animation* UnitArt::get(uint32_t classId,uint32_t mode,uint32_t variantSeed) {
     if(mode>=16)return nullptr;
+    // D2Common_10884_COMPOSIT_unk: monster knockback uses GH's COF/DCC.
+    if(mode==13)mode=3;
     const uint64_t key=(uint64_t(classId)<<40)|(uint64_t(variantSeed)<<8)|mode;
     auto found=cache_.find(key);
-    if(found!=cache_.end())return found->second.get();
-    std::unique_ptr<Animation> animation;
-    if(const auto* sprite=table_.find(classId);sprite&&sprite->hasMode[mode]) {
-        try {animation=std::make_unique<Animation>(loadCharacter(archives_,palette_,monsterModeTokens[mode],monsterAppearance(*sprite,variantSeed),"monsters"));}
-        catch(const std::exception&){animation.reset();}
-    }
-    return cache_.emplace(key,std::move(animation)).first->second.get();
+    if(found!=cache_.end())return touch(found->second);
+    const auto* sprite=table_.find(classId);
+    if(!sprite||!sprite->hasMode[mode])return touch(cache_.emplace(key,remember(nullptr)).first->second);
+    auto appearance=monsterAppearance(*sprite,variantSeed);
+    // D2Common_10884_COMPOSIT_unk: only compositeDeath retains the weapon class.
+    if((mode==0||mode==12)&&!sprite->compositeDeath)appearance.weaponClass="hth";
+    Work work=[appearance,palette=palette_,mode](const Archives& archives) {
+        return std::make_unique<Animation>(loadCharacter(archives,palette,monsterModeTokens[mode],appearance,"monsters"));
+    };
+    auto done=[this,key](std::unique_ptr<Animation> animation){cache_.emplace(key,remember(std::move(animation)));};
+    D2_UNITART_QUEUE("seed/"+std::to_string(key),classId,work,done);
+    return touch(cache_.find(key)->second);
 }
 const Animation* UnitArt::get(uint32_t classId,uint32_t mode,const std::array<uint8_t,16>& components,uint8_t colorTransform,uint8_t stateShift) {
     if(mode>=16)return nullptr;
+    if(mode==13)mode=3; // same original monster KB -> GH mapping as the seeded path
     const auto key=std::make_tuple(classId,mode,components,colorTransform,stateShift);
     auto found=exact_.find(key);
-    if(found!=exact_.end())return found->second.get();
-    std::unique_ptr<Animation> animation;
-    if(const auto* sprite=table_.find(classId);sprite&&sprite->hasMode[mode]) {
-        // The pieces the game chose (each an index into the component's list of variants in monstats2.txt).
-        CharacterAppearance appearance;appearance.token=sprite->code;appearance.weaponClass=sprite->baseWeapon;
-        for(size_t i=0;i<16;++i){const auto& list=sprite->variants[i];appearance.components[i]=list.empty()?std::string{}:list[std::min<size_t>(components[i],list.size()-1)];}
+    if(found!=exact_.end())return touch(found->second);
+    const auto* sprite=table_.find(classId);
+    if(!sprite||!sprite->hasMode[mode])return touch(exact_.emplace(key,remember(nullptr)).first->second);
+    // The pieces the game chose (each an index into the component's list of variants in monstats2.txt).
+    CharacterAppearance appearance;appearance.token=sprite->code;appearance.weaponClass=sprite->baseWeapon;
+    if((mode==0||mode==12)&&!sprite->compositeDeath)appearance.weaponClass="hth";
+    for(size_t i=0;i<16;++i){const auto& list=sprite->variants[i];appearance.components[i]=list.empty()?std::string{}:list[std::min<size_t>(components[i],list.size()-1)];}
+    const std::array<uint8_t,256>* stateMap=stateShift&&stateColors_?stateColors_->shift(stateShift):nullptr;
+    const std::array<uint8_t,256> stateIndex=stateMap?*stateMap:std::array<uint8_t,256>{};
+    Work work=[appearance,palette=palette_,mode,code=sprite->code,transLvl=sprite->transLvl,colorTransform,useState=stateMap!=nullptr,stateIndex,shifted=stateShift&&stateColors_](const Archives& archives) {
         // The colours: a pixel's index goes through the monster's palette shift (its TransLvl map of COF\palshift.dat), then
         // for a unique through its RandTransforms.dat map, then to the palette.
         std::array<uint8_t,256> index{};for(size_t i=0;i<256;++i)index[i]=uint8_t(i);
         {
-            auto found=palshifts_.find(sprite->code);
-            if(found==palshifts_.end()) {
-                Bytes bytes;try{bytes=archives_.read("data\\global\\monsters\\"+sprite->code+"\\cof\\palshift.dat");}catch(const std::exception&){}
-                found=palshifts_.emplace(sprite->code,std::move(bytes)).first;
-            }
-            const size_t at=size_t(sprite->transLvl)*256;
-            if(at+256<=found->second.size())for(size_t i=0;i<256;++i)index[i]=found->second[at+i];
+            Bytes shifts;try{shifts=archives.read("data\\global\\monsters\\"+code+"\\cof\\palshift.dat");}catch(const std::exception&){}
+            const size_t at=size_t(transLvl)*256;
+            if(at+256<=shifts.size())for(size_t i=0;i<256;++i)index[i]=shifts[at+i];
         }
         // states.txt colorshift (Pal.PL2) replaces a unique's colour: the highest colorpri is the one the client draws.
-        if(stateShift&&stateColors_){if(const auto* map=stateColors_->shift(stateShift))for(auto& i:index)i=(*map)[i];}
+        if(shifted){if(useState)for(auto& i:index)i=stateIndex[i];}
         else if(colorTransform) {
-            if(transforms_.empty())try{transforms_=archives_.read("data\\global\\monsters\\RandTransforms.dat");}catch(const std::exception&){}
+            Bytes transforms;try{transforms=archives.read("data\\global\\monsters\\RandTransforms.dat");}catch(const std::exception&){}
             const size_t at=size_t(colorTransform-1)*256;
-            if(at+256<=transforms_.size())for(auto& i:index)i=transforms_[at+i];
+            if(at+256<=transforms.size())for(auto& i:index)i=transforms[at+i];
         }
-        Palette palette=palette_;
-        for(size_t i=0;i<256;++i)palette[i]=palette_[index[i]];
-        try {animation=std::make_unique<Animation>(loadCharacter(archives_,palette,monsterModeTokens[mode],appearance,"monsters"));}
-        catch(const std::exception&){animation.reset();}
-    }
-    return exact_.emplace(key,std::move(animation)).first->second.get();
+        Palette shiftedPalette=palette;
+        for(size_t i=0;i<256;++i)shiftedPalette[i]=palette[index[i]];
+        return std::make_unique<Animation>(loadCharacter(archives,shiftedPalette,monsterModeTokens[mode],appearance,"monsters"));
+    };
+    auto done=[this,key](std::unique_ptr<Animation> animation){exact_.emplace(key,remember(std::move(animation)));};
+    std::string text="exact/"+std::to_string(classId)+"/"+std::to_string(mode)+"/"+std::to_string(colorTransform)+"/"+std::to_string(stateShift);
+    for(auto c:components)text+="/"+std::to_string(c);
+    D2_UNITART_QUEUE(text,classId,work,done);
+    return touch(exact_.find(key)->second);
 }
 const Animation* UnitArt::player(const CharacterAppearance& look,uint32_t mode) {
     if(mode>=20)return nullptr;
@@ -146,12 +251,15 @@ const Animation* UnitArt::player(const CharacterAppearance& look,uint32_t mode) 
     std::string key=modeLook.token+"/"+modeLook.weaponClass+"/"+std::to_string(mode);
     for(const auto& c:modeLook.components)key+="/"+c;
     auto found=players_.find(key);
-    if(found!=players_.end())return found->second.get();
-    std::unique_ptr<Animation> animation;
-    try {animation=std::make_unique<Animation>(loadCharacter(archives_,palette_,playerModeTokens[mode],modeLook,"chars"));}
-    catch(const std::exception&){animation.reset();}
-    return players_.emplace(key,std::move(animation)).first->second.get();
+    if(found!=players_.end())return touch(found->second);
+    Work work=[modeLook,palette=palette_,mode](const Archives& archives) {
+        return std::make_unique<Animation>(loadCharacter(archives,palette,playerModeTokens[mode],modeLook,"chars"));
+    };
+    auto done=[this,key](std::unique_ptr<Animation> animation){players_.emplace(key,remember(std::move(animation)));};
+    D2_UNITART_QUEUE("player/"+key,0xFFFFFFFFu,work,done);
+    return touch(players_.find(key)->second);
 }
+#undef D2_UNITART_QUEUE
 }
 namespace d2 {
 StringTable::StringTable(const Archives& archives) {
@@ -277,19 +385,9 @@ namespace d2 {
 const Image* ItemArt::get(uint32_t code,uint32_t quality,uint32_t invGraphic,uint8_t trans,uint8_t color) {
     const auto* info=items_.find(code);
     if(!info)return nullptr;
-    // The colour map: data\global\items\palette\<file>.dat (D2CMP's transformation files, in items.txt's numbering).
-    static const char* files[9]={nullptr,"grey","grey2","gold","brown","greybrown","invgrey","invgrey2","invgreybrown"};
-    const uint8_t* map=nullptr;
-    if(trans>0&&trans<9&&color<21) {
-        auto loaded=maps_.find(trans);
-        if(loaded==maps_.end()) {
-            Bytes bytes;
-            try{bytes=archives_.read(std::string("data\\global\\items\\palette\\")+files[trans]+".dat");}catch(const std::exception&){}
-            loaded=maps_.emplace(trans,std::move(bytes)).first;
-        }
-        if(loaded->second.size()>=size_t(color+1)*256)map=loaded->second.data()+size_t(color)*256;
-    }
-    const std::string suffix=map?"#"+std::to_string(trans)+"/"+std::to_string(color):std::string();
+    if(background_)background_->pump(this);
+    const std::string key=std::to_string(code)+"/"+std::to_string(quality)+"/"+std::to_string(invGraphic)+"/"+std::to_string(trans)+"/"+std::to_string(color);
+    if(auto found=cache_.find(key);found!=cache_.end())return found->second.get();
     std::vector<std::string> candidates;
     if(quality==7&&!info->uniqueInvFile.empty())candidates.push_back(info->uniqueInvFile);
     if(quality==5&&!info->setInvFile.empty())candidates.push_back(info->setInvFile);
@@ -297,21 +395,29 @@ const Image* ItemArt::get(uint32_t code,uint32_t quality,uint32_t invGraphic,uin
         candidates.push_back(info->invFile);
         candidates.push_back(info->invFile+std::to_string(invGraphic+1));
     }
-    for(const auto& name:candidates) {
-        auto found=cache_.find(name+suffix);
-        if(found==cache_.end()) {
-            std::unique_ptr<Image> image;
-            try {
-                const auto bytes=archives_.read("data\\global\\items\\"+name+".dc6");
-                Palette shifted=palette_;
-                if(map)for(size_t i=0;i<256;++i)shifted[i]=palette_[map[i]];
-                image=std::make_unique<Image>(decodeDc6(bytes,shifted,0));
-            } catch(const std::exception&) {image.reset();}
-            found=cache_.emplace(name+suffix,std::move(image)).first;
+    auto load=[candidates,trans,color,palette=palette_](const Archives& archives)->std::shared_ptr<const Image> {
+        // The colour map: data\global\items\palette\<file>.dat (D2CMP's transformation files, in items.txt's numbering).
+        static const char* files[9]={nullptr,"grey","grey2","gold","brown","greybrown","invgrey","invgrey2","invgreybrown"};
+        Palette shifted=palette;
+        if(trans>0&&trans<9&&color<21) {
+            Bytes map;
+            try{map=archives.read(std::string("data\\global\\items\\palette\\")+files[trans]+".dat");}catch(const std::exception&){}
+            if(map.size()>=size_t(color+1)*256)for(size_t i=0;i<256;++i)shifted[i]=palette[map[size_t(color)*256+i]];
         }
-        if(found->second)return found->second.get();
+        for(const auto& name:candidates)
+            try {return std::make_shared<const Image>(decodeDc6(archives.read("data\\global\\items\\"+name+".dc6"),shifted,0));}
+            catch(const std::exception&) {}
+        return nullptr;
+    };
+    if(background_) {
+        if(pending_.insert(key).second)
+            background_->queue(this,[this,key,load](const Archives& archives)->BackgroundReads::Done {
+                auto image=load(archives);
+                return [this,key,image]{pending_.erase(key);cache_.emplace(key,image);};
+            });
+        return nullptr;
     }
-    return nullptr;
+    return cache_.emplace(key,load(archives_)).first->second.get();
 }
 }
 namespace d2 {
@@ -483,15 +589,26 @@ const Animation* ObjectArt::get(uint32_t classId,uint32_t mode) {
     const auto* info=table_.find(classId);
     if(!info||mode>=8||info->token.size()!=2||!info->draw)return nullptr;
     const uint64_t key=(uint64_t(classId)<<8)|mode;
+    if(background_)background_->pump(this);
     auto found=cache_.find(key);
     if(found!=cache_.end())return found->second.get();
-    std::unique_ptr<Animation> animation;
-    try {
-        CharacterAppearance appearance;appearance.token=info->token;appearance.weaponClass="hth";
-        for(auto& component:appearance.components)component="lit";
-        animation=std::make_unique<Animation>(loadCharacter(archives_,palette_,modes[mode],appearance,"objects"));
-    } catch(const std::exception&) {animation.reset();}
-    return cache_.emplace(key,std::move(animation)).first->second.get();
+    CharacterAppearance appearance;appearance.token=info->token;appearance.weaponClass="hth";
+    for(auto& component:appearance.components)component="lit";
+    auto load=[appearance,palette=palette_,modeToken=std::string(modes[mode])](const Archives& archives) {
+        std::unique_ptr<Animation> animation;
+        try {animation=std::make_unique<Animation>(loadCharacter(archives,palette,modeToken,appearance,"objects"));}
+        catch(const std::exception&) {animation.reset();}
+        return animation;
+    };
+    if(background_) {
+        if(pending_.insert(key).second)
+            background_->queue(this,[this,key,load](const Archives& archives)->BackgroundReads::Done {
+                auto shared=std::make_shared<std::unique_ptr<Animation>>(load(archives));
+                return [this,key,shared]{pending_.erase(key);cache_.emplace(key,std::move(*shared));};
+            });
+        return nullptr;
+    }
+    return cache_.emplace(key,load(archives_)).first->second.get();
 }
 }
 namespace d2 {
@@ -540,12 +657,24 @@ const MissileInfo* MissileTable::find(uint32_t classId) const {
 const Animation* MissileArt::get(uint32_t classId) {
     const auto* info=table_.find(classId);
     if(!info)return nullptr;
+    if(background_)background_->pump(this);
     auto found=cache_.find(classId);
     if(found!=cache_.end())return found->second.get();
-    std::unique_ptr<Animation> animation;
-    try {animation=std::make_unique<Animation>(inScreenOrder(decodeDcc(archives_.read("data\\global\\missiles\\"+info->celFile+".dcc"),palette_)));}
-    catch(const std::exception&) {animation.reset();}
-    return cache_.emplace(classId,std::move(animation)).first->second.get();
+    auto load=[file="data\\global\\missiles\\"+info->celFile+".dcc",palette=palette_](const Archives& archives) {
+        std::unique_ptr<Animation> animation;
+        try {animation=std::make_unique<Animation>(inScreenOrder(decodeDcc(archives.read(file),palette)));}
+        catch(const std::exception&) {animation.reset();}
+        return animation;
+    };
+    if(background_) {
+        if(pending_.insert(classId).second)
+            background_->queue(this,[this,classId,load](const Archives& archives)->BackgroundReads::Done {
+                auto shared=std::make_shared<std::unique_ptr<Animation>>(load(archives));
+                return [this,classId,shared]{pending_.erase(classId);cache_.emplace(classId,std::move(*shared));};
+            });
+        return nullptr;
+    }
+    return cache_.emplace(classId,load(archives_)).first->second.get();
 }
 }
 namespace d2 {
@@ -625,6 +754,7 @@ SoundBank::SoundBank(const Archives& archives,const MonsterTable& monsters):mons
             const int i=std::stoi(index);byIndex_[i]=sounds.cell(r,"FileName");
             auto number=[&](const char* column,int fallback){const auto v=sounds.cell(r,column);return v.empty()||!std::isdigit(static_cast<unsigned char>(v[0]))?fallback:std::stoi(v);};
             volumes_[i]={number("Volume",255),number("Group Size",0)};
+            nameIndex_[lower(name)]=i;deferInst_[i]=number("Defer Inst",0)!=0;
         }
     }
     for(size_t r=0;r<monsterTable.rows();++r) {
@@ -632,6 +762,10 @@ SoundBank::SoundBank(const Archives& archives,const MonsterTable& monsters):mons
         s.attack={lower(monsterTable.cell(r,"Attack1")),lower(monsterTable.cell(r,"Attack2"))};
         s.weapon={lower(monsterTable.cell(r,"Weapon1")),lower(monsterTable.cell(r,"Weapon2"))};
         s.hit=lower(monsterTable.cell(r,"HitSound"));s.death=lower(monsterTable.cell(r,"DeathSound"));
+        auto num=[&](const char* column,int fallback){const auto v=monsterTable.cell(r,column);return v.empty()||!std::isdigit(static_cast<unsigned char>(v[0]))?fallback:std::stoi(v);};
+        s.attackDelay={num("Att1Del",0),num("Att2Del",0)};s.weaponDelay={num("Wea1Del",0),num("Wea2Del",0)};
+        s.attackChance={num("Att1Prb",100),num("Att2Prb",100)};s.weaponVolume={num("Wea1Vol",255),num("Wea2Vol",255)};
+        s.hitDelay=num("HitDelay",0);s.deathDelay=num("DeaDelay",0);
         monsterSounds_[lower(monsterTable.cell(r,"Id"))]=std::move(s);
     }
 }
@@ -646,6 +780,28 @@ std::string SoundBank::monsterDeath(uint32_t classId) const {
 }
 std::string SoundBank::monsterAttack(uint32_t classId,int mode) const {
     const auto* m=monsters_.find(classId);if(!m)return {};auto f=monsterSounds_.find(m->monSound);return f==monsterSounds_.end()?std::string():file(f->second.attack[size_t(mode==5)]);
+}
+SoundBank::Pick SoundBank::pick(const std::string& soundName,uint32_t roll) const {
+    const auto found=nameIndex_.find(lower(soundName));
+    if(found==nameIndex_.end())return {file(soundName),1.f,{}};
+    const int first=found->second,row=first+int(roll%uint32_t(std::max(groupByIndex(first),1)));
+    const auto defer=deferInst_.find(first);
+    return {fileByIndex(row),float(volumeByIndex(row))/255.f,defer!=deferInst_.end()&&defer->second?lower(soundName):std::string()};
+}
+std::string SoundBank::monsterSoundName(uint32_t classId,int mode,int which) const {
+    const auto* m=monsters_.find(classId);if(!m)return {};auto f=monsterSounds_.find(m->monSound);if(f==monsterSounds_.end())return {};
+    const auto& s=f->second;const size_t i=size_t(mode==5);
+    return which==0?s.attack[i]:which==1?s.weapon[i]:which==2?s.hit:s.death;
+}
+SoundBank::Timing SoundBank::monsterTiming(uint32_t classId,int mode,int which) const {
+    const auto* m=monsters_.find(classId);if(!m)return {};auto f=monsterSounds_.find(m->monSound);if(f==monsterSounds_.end())return {};
+    const auto& s=f->second;const size_t i=size_t(mode==5);
+    switch(which) {
+        case 0:return {s.attackDelay[i],s.attackChance[i],255};
+        case 1:return {s.weaponDelay[i],100,s.weaponVolume[i]};
+        case 2:return {s.hitDelay,100,255};
+        default:return {s.deathDelay,100,255};
+    }
 }
 std::string SoundBank::monsterWeapon(uint32_t classId,int mode) const {
     const auto* m=monsters_.find(classId);if(!m)return {};auto f=monsterSounds_.find(m->monSound);return f==monsterSounds_.end()?std::string():file(f->second.weapon[size_t(mode==5)]);
@@ -725,9 +881,9 @@ StateTable::StateTable(const Archives& archives) {
         }
     }
 }
-StateVisual StateTable::visual(const std::array<uint32_t,6>& states) const {
+StateVisual StateTable::visual(const std::array<uint32_t,8>& states) const {
     StateVisual best;int pri=-1;
-    for(uint32_t s=0;s<states_.size()&&s<192;++s) {
+    for(uint32_t s=0;s<states_.size()&&s<256;++s) {
         if(!(states[s>>5]&(1u<<(s&31))))continue;
         const auto& info=states_[s];
         if(info.colorPri<=pri)continue;

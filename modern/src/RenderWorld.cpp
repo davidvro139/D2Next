@@ -28,6 +28,7 @@ bool Renderer::draw() {
         float blendFactor=.5f;
         // Each picture of the world becomes a draw command (DrawList.h): its quad in clip space, the current light and blend.
         commands.clear();
+        if(unitArt)unitArt->beginFrame(128*1024*1024,512,[&](const d2::Animation& animation){forgetAnimation(animation);});
         auto drawTile=[&](uint32_t w,uint32_t h,float centerX,float centerY,const d2::Image* image,bool shadow) {
             d2::DrawCommand c;c.image=image;
             c.quad={w*zoom/width,h*zoom/height,2*centerX/width,-2*centerY/height};
@@ -61,7 +62,7 @@ bool Renderer::draw() {
             } else ambient={insideAmbient,insideAmbient,insideAmbient};
             lightingOn=walkGrid&&levelInfo&&(levelInfo->inside||ambient[0]<1||ambient[1]<1||ambient[2]<1);
             if(lightingOn) {
-                auto lightColor=[&](std::array<float,3> color,const std::array<uint32_t,6>& states) {
+                auto lightColor=[&](std::array<float,3> color,const std::array<uint32_t,8>& states) {
                     // states.txt light-r/g/b of the highest colorpri replaces the colour of the light this unit already gives.
                     if(stateTable)if(const auto look=stateTable->visual(states);look.light)return std::array<float,3>{look.lightColor[0]/255.f,look.lightColor[1]/255.f,look.lightColor[2]/255.f};
                     return color;
@@ -89,7 +90,7 @@ bool Renderer::draw() {
             auto lightStanding=[&](float x,float y){if(!lightingOn)return;const auto l=lightAt(x,y);setLight(l,l,l,l);};
             // A frame's see-through layers, over it at the same place: glowing (added on) or 75/50/25% opaque, by the COF effect.
             auto drawGlow=[&](const d2::AnimationFrame& frame,float centerX,float centerY) {
-                if(frame.glowEffect==255||frame.glow.rgba.empty())return;
+                if(frame.glowEffect==255||!frame.glow.hasPixels())return;
                 const int saved=drawBlend;const float savedFactor=blendFactor;
                 const auto e=frame.glowEffect;
                 setOverlayBlend(e);
@@ -113,9 +114,9 @@ bool Renderer::draw() {
                 drawTile(o.image.width,o.image.height,(anchor[0]+info.x+o.x+o.image.width*.5f-scene->width*.5f)*zoom+panX,
                     (anchor[1]+info.y+info.height[size_t(h)]+o.y+o.image.height*.5f-scene->height*.5f)*zoom+panY,&o.image,false);
             };
-            auto drawStateOverlays=[&](const std::array<uint32_t,6>& states,const std::array<float,2>& anchor,bool behind,int overlayHeight) {
+            auto drawStateOverlays=[&](const std::array<uint32_t,8>& states,const std::array<float,2>& anchor,bool behind,int overlayHeight) {
                 if(!stateTable||!overlayTable||!overlayArt)return;
-                for(uint32_t s=0;s<192;++s) {
+                for(uint32_t s=0;s<256;++s) {
                     if(!(states[s>>5]&(1u<<(s&31))))continue;
                     const auto* state=stateTable->find(s);if(!state)continue;
                     for(const auto& name:state->overlays) {
@@ -218,7 +219,7 @@ bool Renderer::draw() {
                 // approximate length (max + min/2), one animation frame earlier each (wrapping within 8). Moving down the
                 // screen they are drawn before the unit, farthest first; otherwise after it, nearest first.
                 const bool charging=usedSkill&&usedSkill->serverDoFunc==67&&fromTable&&view.sequenceMode==3;
-                static uint64_t chargeSteps=0,chargeTick=0;chargeSteps=charging?chargeSteps+(worldView.tick!=chargeTick?1:0):0;chargeTick=worldView.tick;
+                chargeSteps=charging?chargeSteps+(worldView.tick!=chargeTick?1:0):0;chargeTick=worldView.tick;
                 auto drawChargeTrail=[&](bool before) {
                     const int copies=int(std::min<uint64_t>(chargeSteps,2));
                     if(!charging||!copies)return;
@@ -283,7 +284,10 @@ bool Renderer::draw() {
                     sequenceFrame=fromTable?other.sequenceFrame:other.skillMoveFrame!=255?d2::playerSequenceFrame(skill,other.skillMoveFrame,unarmed):d2::playerSequenceFrame(skill,other.ticks,unarmed);
                     sequenceArt=mode;
                 }
-                const d2::Animation* animation=isObject?(objectArt?objectArt->get(other.classId,other.mode):nullptr):isMissile?(missileArt?missileArt->get(other.classId):nullptr):(unitArt&&other.lookClass==255?unitArt->get(other.classId,other.mode,other.components,other.colorTransform,stateShift):nullptr);
+                if(!isObject&&!isMissile&&other.mode==14&&other.sequenceMode!=255) {
+                    sequenceArt=other.sequenceMode;sequenceFrame=other.sequenceFrame;
+                }
+                const d2::Animation* animation=isObject?(objectArt?objectArt->get(other.classId,other.mode):nullptr):isMissile?(missileArt?missileArt->get(other.classId):nullptr):(unitArt&&other.lookClass==255?unitArt->get(other.classId,sequenceArt>=0?uint8_t(sequenceArt):other.mode,other.components,other.colorTransform,stateShift):nullptr);
                 // A monster drawn as a player (Valkyrie, Decoy, Shadow Warrior): that class's art in its gear (D2Common #11013).
                 if(!isObject&&!isMissile&&other.lookClass!=255&&unitArt)if(const auto* look=unitArt->player(d2::appearanceFromCodes(other.lookClass,other.look),sequenceArt>=0?uint8_t(sequenceArt):other.lookMode);look&&!look->frames.empty())animation=look;
                 // An opened door: its opened art is empty; the closed door art holds the open door as its last frame.
@@ -296,6 +300,8 @@ bool Renderer::draw() {
                         drawLoopingOverlay(missileInfo->progressOverlay,other.ticks,anchor,false,2);
                     }
                     if(isObject||isMissile||shadowOnly)return; // objects/missiles without art are not drawn
+                    // Art still being read on the loader thread: nothing for these few frames, not the placeholder.
+                    if(unitArt&&(unitArt->loading(other.classId)||(other.lookClass!=255&&unitArt->loading(0xFFFFFFFFu))))return;
                     const d2::Image* glyph=other.kind==1?&townPersonGlyph:other.kind==2?&enemyGlyph:&corpseGlyph;
                     if(std::getenv("D2MODERN_PICK_LOG")){static std::set<uint64_t> told;if(told.insert(uint64_t(other.classId)<<8|other.mode).second)std::cout<<"No art: class "<<other.classId<<" ("<<(unitArt&&unitArt->sprite(other.classId)?unitArt->sprite(other.classId)->id:std::string("?"))<<") mode "<<other.mode<<" kind "<<int(other.kind)<<" at "<<other.x<<","<<other.y<<"\n";}
                     if((other.kind==1||other.kind==2)&&pickable(other))unitPicks.push_back({anchor[0]-16,anchor[1]-8,32,16,other.guid,other.classId,other.kind,other.monsterType,anchor[1]});
@@ -348,10 +354,9 @@ bool Renderer::draw() {
                 };
                 const bool otherWhirlwind=otherSkill&&otherSkill->serverDoFunc==76&&other.mode==18;
                 const bool otherCharging=otherSkill&&otherSkill->serverDoFunc==67&&fromTable&&other.sequenceMode==3;
-                static std::map<uint32_t,std::pair<uint64_t,uint64_t>> chargeSteps; // per player: running steps, the tick last counted
                 int trailCopies=0,stepX=0,stepY=0;
                 if(otherPlayer) {
-                    auto& steps=chargeSteps[other.guid];
+                    auto& steps=otherChargeSteps[other.guid];
                     steps.first=otherCharging?steps.first+(worldView.tick!=steps.second?1:0):0;steps.second=worldView.tick;
                     if(otherCharging&&steps.first) {
                         const auto now=d2::projectPoint(*scene,other.tickX,other.tickY),then=d2::projectPoint(*scene,other.lastX,other.lastY);
@@ -492,7 +497,7 @@ bool Renderer::draw() {
                 const int x1=std::min(p.x+int(img.width),int(playerBox[0]+playerBox[2])),y1=std::min(p.y+int(img.height),int(playerBox[1]+playerBox[3]));
                 int covered=0;
                 for(int y=y0;y<y1&&covered<40;++y)for(int x=x0;x<x1&&covered<40;++x)
-                    if(img.rgba[(size_t(y-p.y)*img.width+size_t(x-p.x))*4+3]&&playerFrame->image.rgba[(size_t(y-int(playerBox[1]))*playerFrame->image.width+size_t(x-int(playerBox[0])))*4+3])++covered;
+                    if(img.alpha(size_t(y-p.y)*img.width+size_t(x-p.x))&&playerFrame->image.alpha(size_t(y-int(playerBox[1]))*playerFrame->image.width+size_t(x-int(playerBox[0]))))++covered;
                 if(covered>=24){fadeTarget[index]=wallFade;seeds.push_back(index);}
             }
             for(auto index:visible) {
@@ -573,7 +578,7 @@ bool Renderer::draw() {
             weatherScreenWidth=float(width)/zoom;weatherScreenHeight=float(height)/zoom;
             // D2Client takes each colour's nearest entry of the act's palette (D2Win #10034), which tames the colours its byte
             // arithmetic wraps round to.
-            static std::map<uint32_t,std::array<uint8_t,3>> nearest;static const d2::Palette* nearestOf=nullptr;
+            auto& nearest=nearestWeatherColors;auto& nearestOf=weatherPalette;
             if(nearestOf!=unitPalette){nearest.clear();nearestOf=unitPalette;}
             auto paletteColor=[&](std::array<uint8_t,3> rgb) {
                 if(!unitPalette)return rgb;

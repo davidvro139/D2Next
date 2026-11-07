@@ -12,7 +12,16 @@ int main(int argc,char** argv){try {
     auto code=[](const char* c){uint32_t v=0;for(int i=0;i<4;++i)v|=uint32_t(i<int(strlen(c))?uint8_t(c[i]):uint8_t(' '))<<(8*i);return v;};
     require(items.displayName(code("ssd"),2,0,0,0,0,0)=="Short Sword","normal item name");
     std::cout<<"magic 1: "<<items.displayName(code("ssd"),4,1,0,0,0,0)<<" | magic 2: "<<items.displayName(code("ssd"),4,2,0,0,0,0)<<" | unique 0: "<<items.displayName(code("ssd"),7,0,0,0,0,0)<<std::endl;
-    require(items.displayName(code("ssd"),4,1,0,0,0,0)=="Sturdy Short Sword","magic prefix name");
+    // D2Common concatenates suffixes, prefixes, automagic; both packet affix IDs index that combined table.
+    const auto suffixBytes=archives.read("data\\global\\excel\\magicsuffix.txt");
+    const d2::TextTable suffixRows(std::string_view(reinterpret_cast<const char*>(suffixBytes.data()),suffixBytes.size()));
+    const auto prefixBytes=archives.read("data\\global\\excel\\magicprefix.txt");
+    const d2::TextTable prefixRows(std::string_view(reinterpret_cast<const char*>(prefixBytes.data()),prefixBytes.size()));
+    uint32_t sturdy=0;
+    for(size_t row=0;row<prefixRows.rows();++row)if(prefixRows.cell(row,"Name")=="Sturdy") {sturdy=uint32_t(suffixRows.rows()+row+1);break;}
+    require(sturdy!=0,"Sturdy missing from magicprefix.txt");
+    require(items.displayName(code("ssd"),4,sturdy,0,0,0,0)=="Sturdy Short Sword","combined-table magic prefix name");
+    require(items.displayName(code("ssd"),4,sturdy,1,0,0,0)=="Sturdy Short Sword of Health","combined-table prefix and suffix name");
     require(items.displayName(code("ssd"),7,0,0,0,0,0)=="The Gnasher","unique name");
     const auto* sword=items.find(code("ssd"));require(sword&&sword->invWidth==1&&sword->invHeight==3,"short sword inventory size");
     require(sword->minDamage==2&&sword->maxDamage==7&&sword->durability==24,"short sword tooltip specs");
@@ -23,6 +32,8 @@ int main(int argc,char** argv){try {
     const auto* gheed=monsters.find(147);require(gheed&&strings.get(gheed->nameKey)=="Gheed","Gheed's name");
     const auto* zombie=monsters.find(5);require(zombie&&strings.get(zombie->nameKey)=="Zombie","zombie name");
     require(zombie->overlayHeight>=1&&zombie->overlayHeight<=4,"zombie overlay height");
+    require(zombie->variants[3]==std::vector<std::string>({"lit","med","hvy"})&&
+        zombie->variants[4]==std::vector<std::string>({"lit","med","hvy"}),"zombie Rav/Lav arm variants were not loaded");
     std::cout<<"short sword inv file: "<<sword->invFile<<" | strings: "<<strings.size()<<"\n";
     d2::SkillTable skills(archives,strings);
     const auto* might=skills.find(98);

@@ -1,7 +1,12 @@
 // D2Next: startup (arguments, game data, the menus), the game loop, and the scripted test runs.
+#include "ArchivePlan.h"
+#include <cctype>
+#include <fstream>
 #include "Renderer.h"
+#include "AssetTiming.h"
 #include "NativeProtocol.h"
 #include "SkillVisuals.h"
+#include "HeroCryState.h"
 #include "NpcTopics.h"
 #include "ProgramPath.h"
 #include "GpuSelect.h"
@@ -55,7 +60,9 @@ static LookSet buildLook(const d2::Archives& archives,const d2::Palette& palette
     for(uint8_t mode=0;mode<20;++mode) {
         if(mode==5||mode==6)continue;
         auto modeLook=look;
-        if(mode==0||mode==17)modeLook.weaponClass="hth";
+        // Death and dead are one whole-body layer (every class's DT/DD COF has only TR, drawn only as "lit"): no gear,
+        // armour type or armour colour, or the dying hero in medium or heavy armour had no picture at all.
+        if(mode==0||mode==17){modeLook.weaponClass="hth";modeLook.components[1]="lit";modeLook.trans[1]=0;modeLook.colors[1]=0;}
         try {set.movement.emplace(mode,d2::loadCharacter(archives,palette,d2::playerModeTokens[mode],modeLook));}
         catch(const std::exception&) {} // the class has no such animation with this weapon
     }
@@ -102,6 +109,7 @@ static void scriptedClick(int x,int y,unsigned button=0) {
 // After Back to Main Menu (gameMain runs this again): the character just played, chosen first in character select.
 static std::filesystem::path lastPlayed;
 static bool backFromGame=false;
+static bool backToCharacterSelect=false; // the game was left by Save and Exit Game
 // A TCP/IP game from the menu that could not start: the menus open again on the TCP/IP screen with the failure reason.
 static std::optional<std::string> lanFailure;
 static int run(int argc,wchar_t** argv) {
@@ -118,6 +126,7 @@ static int run(int argc,wchar_t** argv) {
         WEB_STATIC std::filesystem::path root,capture,nativeDlls,nativeSave,profileDir;
         root=defaultGameDirectory();capture.clear();nativeDlls.clear();nativeSave.clear();profileDir.clear();
         WEB_STATIC d2::GridPoint nativeOrigin{};WEB_STATIC std::vector<int> sceneComplete;sceneComplete={1,2,3,4}; // levels whose surroundings are all in the loaded scene
+        WEB_STATIC std::vector<int> shownLevels;shownLevels.clear();
         WEB_STATIC d2::CharacterAppearance appearance;
         WEB_STATIC uint32_t nativeSeed=0x12345678;bool seedGiven=false;nativeSeed=0x12345678;
         WEB_STATIC std::string asset;asset="data\\global\\items\\invhax.dc6";
@@ -175,6 +184,7 @@ static int run(int argc,wchar_t** argv) {
             else if(arg==L"--capture"&&i+1<argc) capture=argv[++i];
             else if(arg==L"--software") software=true;
             else if(arg==L"--touch") touchArgument=true; // the phone controls on a desktop (TOUCH-CONTROLS.md)
+            else if(arg==L"--mod"&&i+1<argc){std::string name;for(const wchar_t* c=argv[++i];*c;++c)name+=char(*c);d2::setEnvironment("D2NEXT_MOD",name.c_str());}
             else if(arg==L"--smoke-test") smoke=true;
             else if(arg==L"--open-inventory")inventoryOpen=true;
             else if(arg==L"--open-skills")skillsOpen=true;
@@ -199,9 +209,14 @@ static int run(int argc,wchar_t** argv) {
             }
             else if(arg==L"--lan-join"&&i+1<argc){std::string address;for(const wchar_t* c=argv[++i];*c;++c)address+=char(*c);d2::setEnvironment("D2MODERN_LAN_JOIN",address.c_str());}
             else {
-                throw std::runtime_error("Usage: D2Next [--map | --tiles | --native | --native-town DLL_DIR] [--seed N] [--native-save SAVE] [--profile PATH] [--walk] [--marker] [--collision] [--place X Y] [--map-stats] [--reference-map] [--zoom SCALE] [--single-tile] [--game-dir PATH] [--asset MPQ_PATH] [--software] [--verify-assets] [--lan-host [PORT] | --lan-join ADDRESS[:PORT]] [--smoke-test] [--capture BMP] [--open-esc-menu] [--animation-tick N] [--animation-walk] [--facing 0..15]");
+                throw std::runtime_error("Usage: D2Next [--map | --tiles | --native | --native-town DLL_DIR] [--seed N] [--native-save SAVE] [--profile PATH] [--walk] [--marker] [--collision] [--place X Y] [--map-stats] [--reference-map] [--zoom SCALE] [--single-tile] [--game-dir PATH] [--mod NAME] [--asset MPQ_PATH] [--software] [--verify-assets] [--lan-host [PORT] | --lan-join ADDRESS[:PORT]] [--smoke-test] [--capture BMP] [--open-esc-menu] [--animation-tick N] [--animation-walk] [--facing 0..15]");
             }
         }
+        // The mod to play when neither --mod nor D2NEXT_MOD names one: <game>/mod.txt (a folder name in <game>/Mods), as the
+        // Android launcher writes it. Read before anything opens the archives: tables are process-wide.
+        if(d2::activeMod().empty())if(std::ifstream file(root/"mod.txt");file){std::string name;std::getline(file,name);
+            while(!name.empty()&&std::isspace(static_cast<unsigned char>(name.back())))name.pop_back();
+            if(!name.empty())d2::setEnvironment("D2NEXT_MOD",name.c_str());}
         if(openEscMenu)gameMenuPage=GameMenuPage::Main;
         std::filesystem::path profile=profileDir.empty()?defaultSaveDirectory():profileDir;
         std::error_code profileError;
@@ -274,8 +289,8 @@ static int run(int argc,wchar_t** argv) {
                 for(uint32_t i=0;i<count;++i) {
                     d2::Tile tile;try{tile=d2::decodeDt1(bytes,palette,i);}catch(...){continue;}
                     if(tile.orientation<1||tile.orientation>14||tile.orientation==13||tile.orientation==10||tile.orientation==11)continue;
-                    bool flat=true,any=false;uint32_t first=0;
-                    for(size_t p=0;p+3<tile.image.rgba.size()&&flat;p+=4){if(!tile.image.rgba[p+3])continue;uint32_t c;std::memcpy(&c,&tile.image.rgba[p],4);if(!any){first=c;any=true;}else flat=c==first;}
+                    bool flat=true,any=false;std::array<uint8_t,4> first{};
+                    for(size_t p=0;p<size_t(tile.image.width)*tile.image.height&&flat;++p){if(!tile.image.alpha(p))continue;const auto c=tile.image.color(p);if(!any){first=c;any=true;}else flat=c==first;}
                     if(any&&flat)std::cout<<"Flat wall: "<<file<<" tile "<<i<<" o"<<tile.orientation<<" main "<<tile.mainIndex<<" sub "<<tile.subIndex<<" rarity "<<tile.rarity<<" "<<tile.image.width<<"x"<<tile.image.height<<"\n";
                 }
             }
@@ -300,7 +315,13 @@ static int run(int argc,wchar_t** argv) {
         struct ClientArea {int right=0,bottom=0;};
         WEB_STATIC std::function<ClientArea()> clientRect;
         clientRect=[&]{ClientArea area;window->clientSize(area.right,area.bottom);return area;};
-        WEB_STATIC Renderer renderer(d2::makeGpuBackend(*window,software));
+        // Like the window, the renderer (and its GPU context) lasts for the whole program: a second OpenGL context on the
+        // same window after Back to Main Menu made the Adreno driver abort in eglMakeCurrent.
+        static Renderer renderer(d2::makeGpuBackend(*window,software));
+        // The context persists, but the preceding run's CPU images do not.
+        // Drop address-keyed textures before new menu/text images can reuse them.
+        renderer.forgetImages();
+        renderer.resetSessionHistory();
         renderer.uiAssets=&uiAssets; // the menus use its cursor too
         WEB_STATIC std::unique_ptr<d2::Audio> audio; // created for real play only (not in captures and tests)
         auto applyAudioSettings=[&] {
@@ -371,7 +392,7 @@ static int run(int argc,wchar_t** argv) {
                     loadingFront->setMusicPlayer([&](const std::string& path){audio->music(path);});
                     audio->music(menuMusic);
                 }
-                if(backFromGame)loadingFront->showMainMenu();
+                if(backFromGame) {if(backToCharacterSelect)loadingFront->showCharacterSelect();else loadingFront->showMainMenu();}
                 // TCP/IP games (OTHER MULTIPLAYER), where the game runs in this program; the address joined last is
                 // remembered in the save folder, as the original keeps it in the registry.
                 const auto lastAddressFile=profile/L"LastTcpIp.txt";
@@ -446,6 +467,7 @@ static int run(int argc,wchar_t** argv) {
             }
             if(chosen.empty())return 0;
             nativeSave=chosen;lastPlayed=chosen;
+            walk=true; // as for a character found at startup: a character chosen (or created) in the menus is played, not viewed
             std::cout<<"Chosen character: "<<nativeSave.string()<<"\n";
         }
         WEB_STATIC d2::Bytes bytes;bytes=nativeDlls.empty()?archives.read(asset):d2::Bytes{};
@@ -482,10 +504,11 @@ static int run(int argc,wchar_t** argv) {
             } else {
                 if(!nativeSave.empty()&&!seedGiven)nativeSeed=d2::characterMapSeed(nativeSave,profile,smoke,nativeSeed);
                 auto town=d2::loadNativeTown(nativeDlls,root,archives,nativeSeed,nativeSave.empty()?std::vector<int>{1}:std::vector<int>{1,2,3,4},!nativeSave.empty(),pumpLoading);
+                d2::logHeap("first town scene");
                 activeAct=town.act+1;
                 std::cout<<"Native "<<actName(activeAct)<<" town | seed "<<town.seed<<" | "<<town.rooms<<" rooms | world subtile origin "<<town.worldOrigin.x<<","<<town.worldOrigin.y<<" | "<<town.scene.placements.size()<<" tiles | "<<(nativeSave.empty()?"prototype movement":"D2Game movement")<<"\n";
                 scene=std::move(town.scene);collision=std::move(town.collision);
-                nativeOrigin=town.worldOrigin;sceneComplete=town.complete;sceneRooms=town.roomAreas;sceneOrigin=town.worldOrigin;
+                nativeOrigin=town.worldOrigin;sceneComplete=town.complete;shownLevels=town.levels;sceneRooms=town.roomAreas;sceneOrigin=town.worldOrigin;
                 asset="Native "+actName(activeAct)+" town (seed "+std::to_string(nativeSeed)+")";
             }
             if(verify&&scene.missing)throw std::runtime_error("Map verification failed: unresolved tile references");
@@ -552,6 +575,7 @@ static int run(int argc,wchar_t** argv) {
                     }
                     pumpLoading();
                     appearance=session.appearance;characterClass=int32_t(session.characterClass);
+                    d2::logHeap("joining the game (D2MOO)");
                     for(const auto& c:d2::findCharacters({saveSource.parent_path()}))if(c.path.filename()==saveSource.filename())characterName=c.name;
                     // Character select shows the character in this gear next time.
                     if(!saveOut.empty()){lookFile=saveOut.parent_path()/(saveOut.stem().wstring()+L".look");d2::saveAppearance(lookFile,appearance);}
@@ -567,7 +591,7 @@ static int run(int argc,wchar_t** argv) {
                         std::cout<<"Loading saved level "<<startLevel<<"..."<<std::endl;
                         auto startScene=d2::loadNativeTown(nativeDlls,root,archives,nativeSeed,{startLevel},true,pumpLoading);
                         activeAct=startScene.act+1;
-                        scene=std::move(startScene.scene);collision=std::move(startScene.collision);nativeOrigin=startScene.worldOrigin;sceneComplete=startScene.complete;sceneRooms=startScene.roomAreas;sceneOrigin=startScene.worldOrigin;
+                        scene=std::move(startScene.scene);collision=std::move(startScene.collision);nativeOrigin=startScene.worldOrigin;sceneComplete=startScene.complete;shownLevels=startScene.levels;sceneRooms=startScene.roomAreas;sceneOrigin=startScene.worldOrigin;
                         asset="Native "+actName(activeAct)+" town (seed "+std::to_string(nativeSeed)+")";
                         world->setScene(collision,nativeOrigin,startScene.levels);
                         world->tick();
@@ -584,8 +608,9 @@ static int run(int argc,wchar_t** argv) {
                 pumpLoading();
                 std::cout<<appearance.token<<": "<<idleCharacter.directions<<" directions | "<<idleCharacter.framesPerDirection<<" idle frames | "<<walkingCharacter.framesPerDirection<<" walk frames\n";
             }
-            if(walkGrid&&!nativeSave.empty()){unitArt=std::make_unique<d2::UnitArt>(archives,loadActPalette());pumpLoading();}
-            if(walkGrid&&!nativeSave.empty()){const auto scenePalette=loadActPalette();strings=std::make_unique<d2::StringTable>(archives);gameStrings=strings.get();pumpLoading();itemTable=std::make_unique<d2::ItemTable>(archives,*strings);gameItems=itemTable.get();itemStats=std::make_unique<d2::ItemStatTable>(archives);itemArt=std::make_unique<d2::ItemArt>(archives,palette,*itemTable);pumpLoading();skillTable=std::make_unique<d2::SkillTable>(archives,*strings);gameSkills=skillTable.get();skillArt=std::make_unique<d2::SkillArt>(archives,palette);pumpLoading();levelTable=std::make_unique<d2::LevelTable>(archives);gameLevels=levelTable.get();petTypes=std::make_unique<d2::PetTypeTable>(archives);gamePetTypes=petTypes.get();automapTable=std::make_unique<d2::AutomapTable>(archives);warpTable=std::make_unique<d2::WarpTable>(archives);missileTable=std::make_unique<d2::MissileTable>(archives);gameMissiles=missileTable.get();missileArt=std::make_unique<d2::MissileArt>(archives,scenePalette,*missileTable);pumpLoading();overlayTable=std::make_unique<d2::OverlayTable>(archives);gameOverlays=overlayTable.get();stateTable=std::make_unique<d2::StateTable>(archives);overlayArt=std::make_unique<d2::OverlayArt>(archives,scenePalette,*overlayTable);objectTable=std::make_unique<d2::ObjectTable>(archives);objectArt=std::make_unique<d2::ObjectArt>(archives,scenePalette,*objectTable);pumpLoading();gameStates=stateTable.get();stateColors=std::make_unique<d2::StateColors>(archives,activeAct);if(unitArt)unitArt->setStateColors(stateColors.get());gameUnitArt=unitArt.get();}
+            if(walkGrid&&!nativeSave.empty()){unitArt=std::make_unique<d2::UnitArt>(archives,loadActPalette());unitArt->loadInBackground();pumpLoading();}
+            if(walkGrid&&!nativeSave.empty()){const auto scenePalette=loadActPalette();strings=std::make_unique<d2::StringTable>(archives);gameStrings=strings.get();pumpLoading();itemTable=std::make_unique<d2::ItemTable>(archives,*strings);gameItems=itemTable.get();itemStats=std::make_unique<d2::ItemStatTable>(archives);itemArt=std::make_unique<d2::ItemArt>(archives,palette,*itemTable);itemArt->loadInBackground();pumpLoading();skillTable=std::make_unique<d2::SkillTable>(archives,*strings);gameSkills=skillTable.get();skillArt=std::make_unique<d2::SkillArt>(archives,palette);pumpLoading();levelTable=std::make_unique<d2::LevelTable>(archives);gameLevels=levelTable.get();petTypes=std::make_unique<d2::PetTypeTable>(archives);gamePetTypes=petTypes.get();automapTable=std::make_unique<d2::AutomapTable>(archives);warpTable=std::make_unique<d2::WarpTable>(archives);missileTable=std::make_unique<d2::MissileTable>(archives);gameMissiles=missileTable.get();missileArt=std::make_unique<d2::MissileArt>(archives,scenePalette,*missileTable);missileArt->loadInBackground();pumpLoading();overlayTable=std::make_unique<d2::OverlayTable>(archives);gameOverlays=overlayTable.get();stateTable=std::make_unique<d2::StateTable>(archives);overlayArt=std::make_unique<d2::OverlayArt>(archives,scenePalette,*overlayTable);objectTable=std::make_unique<d2::ObjectTable>(archives);objectArt=std::make_unique<d2::ObjectArt>(archives,scenePalette,*objectTable);objectArt->loadInBackground();pumpLoading();gameStates=stateTable.get();stateColors=std::make_unique<d2::StateColors>(archives,activeAct);if(unitArt)unitArt->setStateColors(stateColors.get());gameUnitArt=unitArt.get();}
+            d2::logHeap("game tables and art caches");
         }
         frontEnd=nullptr;
         loadingFront.reset();
@@ -629,6 +654,16 @@ static int run(int argc,wchar_t** argv) {
         // Walking into a level outside the loaded scene (a dungeon, the next wilderness area): generate that level's scene with the same seed and swap it in.
         auto& loadedLevels=sceneComplete;
         WEB_STATIC std::array<uint32_t,17> shownLook;shownLook=worldView.appearance;
+        // These caches belong to this game, including its seed, class and palette.
+        // A return to character selection must not reuse another session's scenes or pending look build.
+        WEB_STATIC std::vector<d2::NativeTown> recentAreas;recentAreas.clear();
+        WEB_STATIC uint64_t retryAt=0;retryAt=0;
+        WEB_STATIC std::list<std::pair<std::array<uint32_t,17>,LookSet>> lookCache;lookCache.clear();
+        WEB_STATIC std::array<uint32_t,17> requested;requested=worldView.appearance;
+        WEB_STATIC std::chrono::steady_clock::time_point requestedAt;requestedAt=std::chrono::steady_clock::now();
+#ifndef __EMSCRIPTEN__
+        std::unique_ptr<LookBuilder> builder;
+#endif
         if(walkGrid&&!nativeSave.empty())afterTick=[&] {
             {const auto& p=worldView.player().position;renderer.revealAround(float(p.x)/d2::fixedOne,float(p.y)/d2::fixedOne);}
             // New gear (a weapon of another class, armour, a helm, a shield): the player's animations are rebuilt for it.
@@ -637,14 +672,19 @@ static int run(int argc,wchar_t** argv) {
                 // while the old one is still drawn, and shown when it is ready (the web build, single-threaded, builds it here).
                 // Moving animations keeps their pictures where they are, so their textures stay valid; a look dropped from the
                 // cache frees its pictures, so the textures are forgotten then (and when new pictures arrive).
-                static std::list<std::pair<std::array<uint32_t,17>,LookSet>> lookCache;
-                static std::array<uint32_t,17> requested{};
-                static auto requestedAt=std::chrono::steady_clock::now();
+                auto trimLooks=[&] {
+                    while(lookCache.size()>2) {
+                        const auto& set=lookCache.back().second;
+                        renderer.forgetAnimation(set.idle);renderer.forgetAnimation(set.walking);
+                        for(const auto& [mode,animation]:set.movement)renderer.forgetAnimation(animation);
+                        lookCache.pop_back();
+                    }
+                };
                 auto show=[&](const std::array<uint32_t,17>& key,const d2::CharacterAppearance& look,LookSet&& set,bool cached) {
                     lookCache.push_front({shownLook,LookSet{std::move(idleCharacter),std::move(walkingCharacter),std::move(movementCharacters)}});
                     idleCharacter=std::move(set.idle);walkingCharacter=std::move(set.walking);movementCharacters=std::move(set.movement);
                     shownLook=key;appearance=look;
-                    bool evicted=false;while(lookCache.size()>2){lookCache.pop_back();evicted=true;}
+                    const bool evicted=lookCache.size()>2;trimLooks();
                     renderer.clearMovement();
                     if(evicted||!cached)renderer.forgetImages();
                     renderer.uploadCharacters(idleCharacter,walkingCharacter);
@@ -654,13 +694,12 @@ static int run(int argc,wchar_t** argv) {
                         <<", "<<std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-requestedAt).count()<<" ms"<<std::endl;
                 };
 #ifndef __EMSCRIPTEN__
-                static std::unique_ptr<LookBuilder> builder;
                 if(!builder&&!markerOnly&&!nativeSave.empty()&&!std::getenv("D2MODERN_LOOK_SYNC"))builder=std::make_unique<LookBuilder>(archives.root(),characterPalette,true); // ready before it is needed
                 if(builder)if(auto done=builder->take()) {
                     if(done->failed)std::cout<<"Cannot show the new gear: "<<done->error<<std::endl;
                     else if(done->key==worldView.appearance&&done->key!=shownLook)show(done->key,done->look,std::move(done->set),false);
                     else if(done->key!=shownLook)lookCache.push_back({done->key,std::move(done->set)}); // already changed again: kept for later
-                    while(lookCache.size()>2)lookCache.pop_back();
+                    trimLooks();
                 }
 #endif
                 if(!markerOnly&&worldView.appearance[0]&&worldView.appearance!=shownLook&&worldView.appearance!=requested) {
@@ -685,24 +724,53 @@ static int run(int argc,wchar_t** argv) {
                 }
                 if(worldView.appearance==shownLook)requested=shownLook;
             }
-            static uint64_t retryAt=0;
             if(!worldView.level||std::find(loadedLevels.begin(),loadedLevels.end(),int(worldView.level))!=loadedLevels.end()||worldView.tick<retryAt)return;
+            d2::reportAssetTimes(std::cout,"before-level");
             std::cout<<"Loading level "<<worldView.level<<"..."<<std::endl;const auto loadStart=std::chrono::steady_clock::now();
             try {
-                auto next=d2::loadNativeTown(nativeDlls,root,archives,nativeSeed,{int(worldView.level)},true);
+                // The last few scenes stay in memory: walking back and forth between two areas (town and the next one,
+                // above all) then swaps scenes instead of building the act again, which takes about half a second.
+                constexpr size_t kRecentAreas=2;
+                const auto cached=std::find_if(recentAreas.begin(),recentAreas.end(),[&](const d2::NativeTown& area){
+                    return std::find(area.complete.begin(),area.complete.end(),int(worldView.level))!=area.complete.end();});
+                d2::NativeTown next;const bool kept=cached!=recentAreas.end();
+                if(kept){next=std::move(*cached);recentAreas.erase(cached);}
+                else next=d2::loadNativeTown(nativeDlls,root,archives,nativeSeed,{int(worldView.level)},true);
+                const auto generated=std::chrono::steady_clock::now();
+                renderer.forgetScene(scene);
+                const auto released=std::chrono::steady_clock::now();
+                if(!shownLevels.empty()) {
+                    d2::NativeTown shown;shown.scene=std::move(scene);shown.collision=std::move(collision);shown.worldOrigin=nativeOrigin;
+                    shown.complete=loadedLevels;shown.levels=shownLevels;shown.roomAreas=sceneRooms;
+                    recentAreas.insert(recentAreas.begin(),std::move(shown));
+                    if(recentAreas.size()>kRecentAreas)recentAreas.pop_back();
+                }
+                shownLevels=next.levels;
                 scene=std::move(next.scene);collision=std::move(next.collision);nativeOrigin=next.worldOrigin;loadedLevels=next.complete;sceneRooms=next.roomAreas;sceneOrigin=next.worldOrigin;
+                const auto built=std::chrono::steady_clock::now();
                 world->setScene(collision,nativeOrigin,next.levels);
-                renderer.upload(scene);
-                std::cout<<"Level "<<worldView.level<<": "<<scene.placements.size()<<" tiles, "<<next.levels.size()<<" level(s) in the scene, loaded in "<<std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-loadStart).count()<<" ms"<<std::endl;
+                renderer.upload(scene,true);
+                const auto ms=[](auto from,auto to){return std::chrono::duration_cast<std::chrono::milliseconds>(to-from).count();};
+                const auto now=std::chrono::steady_clock::now();
+                std::cout<<"Level "<<worldView.level<<": "<<scene.placements.size()<<" tiles, "<<next.levels.size()<<" level(s) in the scene"<<(kept?" (kept)":"")<<", "<<[&]{size_t n=0;for(const auto& t:scene.tiles)n+=t.image.storedBytes();return n>>20;}()<<" MiB tile pixels in the scene, "<<(d2::sharedTilePixelBytes()>>20)<<" MiB in all scenes, "<<(d2::tileFileBytes()>>20)<<" MiB of DT1 files"<<", loaded in "<<ms(loadStart,now)<<" ms (build "<<ms(loadStart,built)<<", upload "<<ms(built,now)<<", generate "<<ms(loadStart,generated)<<", release "<<ms(generated,released)<<", switch "<<ms(released,built)<<")"<<std::endl;
+                d2::logHeap(("level "+std::to_string(worldView.level)).c_str());
+                d2::reportAssetTimes(std::cout,"level-build");
             } catch(const std::exception& e) {
                 std::cout<<"Cannot load level "<<worldView.level<<": "<<e.what()<<" (will retry)"<<std::endl;retryAt=worldView.tick+50;walkStatus="Cannot load this area";
             }
         };
         WEB_STATIC std::unique_ptr<d2::MonsterTable> soundMonsters;WEB_STATIC std::unique_ptr<d2::SoundBank> soundBank;
         WEB_STATIC std::function<void()> updateAudio;
-        updateAudio=[&] {
+        struct PendingSound {std::chrono::steady_clock::time_point due;d2::SoundBank::Pick pick;float gain;};
+        updateAudio=[&,lastMode=uint8_t(255),lastActionFrame=uint32_t(0),lastLevel=-1,
+            ambience=-1,event=-1,eventLast=uint32_t(0),eventWait=uint32_t(0),rainVolume=0,
+            eventRandom=std::mt19937{std::random_device{}()},soundRandom=std::mt19937{std::random_device{}()},
+            monsterModes=std::map<int64_t,uint8_t>{},pendingSounds=std::vector<PendingSound>{},
+            itemsBefore=std::map<uint32_t,std::pair<uint32_t,uint32_t>>{},itemsKnown=false,
+            goldBefore=int32_t(-1),levelBefore=int32_t(-1),itemsLevel=uint32_t(0),
+            heroCry=d2::HeroCryState{},cry=0u,missilesBefore=std::map<int64_t,std::pair<uint32_t,d2::FixedPoint>>{},
+            meteorImpact=std::map<int64_t,uint64_t>{},stepBefore=-1,stepCount=0u]() mutable {
             const auto& p=worldView.player();
-            static uint8_t lastMode=255;static uint32_t lastActionFrame=0;static int lastLevel=-1;
             const uint32_t actionFrame=p.animationFrame==UINT32_MAX?0:p.animationFrame;
             const bool actionRestarted=p.mode==lastMode&&p.animationFrame!=UINT32_MAX&&actionFrame<lastActionFrame;
             const bool actionMode=(p.mode>=7&&p.mode<=8)||p.mode==10||(p.mode>=13&&p.mode<=16)||p.mode==18;
@@ -725,7 +793,6 @@ static int run(int argc,wchar_t** argv) {
                 // Day is cycles 1-3 (morning to afternoon, D2Common #10930); sunrise, sunset and night take the night sounds.
                 const size_t night=worldView.envCycle>=1&&worldView.envCycle<=3?0:1;
                 // The ambience: a looping scene sound, at its sounds.txt volume. Changing it ends the one before.
-                static int ambience=-1;
                 const int nextAmbience=levelInfo->sounds.ambience[night];
                 if(nextAmbience!=ambience) {
                     audio->stopLoop("ambience");ambience=nextAmbience;
@@ -733,8 +800,6 @@ static int run(int argc,wchar_t** argv) {
                 }
                 // Events (birds, drips, moans): one of the event's sounds.txt group every Event Delay frames plus up to a third
                 // more at random; the first comes after a random part of that, so entering an area does not start with one.
-                static int event=-1;static uint32_t eventLast=0,eventWait=0;
-                static std::mt19937 eventRandom{std::random_device{}()};
                 auto randomBelow=[&](uint32_t n){return n?uint32_t(eventRandom()%n):0u;};
                 const int nextEvent=levelInfo->sounds.event[night];const uint32_t delay=uint32_t(std::max(0,levelInfo->sounds.eventDelay));
                 if(nextEvent!=event) {
@@ -750,7 +815,6 @@ static int run(int argc,wchar_t** argv) {
             if(soundBank) {
                 // The rain (not the snow): sounds.txt scene_rain, louder the heavier the storm (D2Client 0x6FB539E7: the
                 // storm's strength times 255, moving at most 6 a frame toward it).
-                static int rainVolume=0;
                 const int target=gameWeather.snowing()?0:std::clamp(int(gameWeather.strength()*255.f),0,255);
                 if(target!=rainVolume)rainVolume=target>rainVolume?std::min(target,rainVolume+6):std::max(target,rainVolume-6);
                 if(rainVolume>0) {
@@ -763,7 +827,6 @@ static int run(int argc,wchar_t** argv) {
             // heard only near this player: within 30 subtiles, the radius missile hits already used.
             auto nearPlayer=[&](d2::FixedPoint at){const double dx=double(at.x-p.position.x)/d2::fixedOne,dy=double(at.y-p.position.y)/d2::fixedOne;return dx*dx+dy*dy<30.0*30.0;};
             // Monsters getting hit, knocked back or dying, near the player, with their own sounds.
-            static std::map<int64_t,uint8_t> monsterModes;
             std::map<int64_t,uint8_t> monsterModesNow;
             auto playImpact=[&](uint8_t hitClass){
                 if(!soundBank)return;
@@ -778,17 +841,30 @@ static int run(int argc,wchar_t** argv) {
                 }
                 if(const auto file=soundBank->file(name);!file.empty())audio->effect(file);
             };
+            // A monster's own sound as monsounds.txt times it: so many frames (40 ms each) after its mode starts, only at its
+            // chance in percent (an attack cry: AttNPrb), at its volume (a weapon: WeaNVol). Which file: one of the sound's
+            // sounds.txt group at random, at its Volume; with Defer Inst none starts while the group's last one still plays.
+            const auto soundNow=std::chrono::steady_clock::now();
+            auto delayedSound=[&](const std::string& name,const d2::SoundBank::Timing& t){
+                if(name.empty()||int(soundRandom()%100)>=t.chance)return;
+                auto pick=soundBank->pick(name,soundRandom());
+                if(pick.file.empty())return;
+                pendingSounds.push_back({soundNow+std::chrono::milliseconds(40*t.delay),std::move(pick),float(t.volume)/255.f});
+            };
+            for(auto it=pendingSounds.begin();it!=pendingSounds.end();) {
+                if(it->due<=soundNow){audio->effect(it->pick.file,it->gain*it->pick.gain,it->pick.deferKey);it=pendingSounds.erase(it);}else ++it;
+            }
             for(const auto& e:worldView.entities) {
                 if(e.kind!=d2::EntityKind::Enemy&&e.kind!=d2::EntityKind::Corpse)continue;
                 auto found=monsterModes.find(e.id);const uint8_t before=found==monsterModes.end()?uint8_t(255):found->second;
                 if(before!=255&&before!=e.mode&&soundBank&&nearPlayer(e.position)) {
                     if(e.mode==3||e.mode==13||e.mode==0) {
-                        const auto file=e.mode==0?soundBank->monsterDeath(e.classId):soundBank->monsterHit(e.classId);
-                        if(!file.empty())audio->effect(file);
+                        const int which=e.mode==0?3:2;
+                        delayedSound(soundBank->monsterSoundName(e.classId,e.mode,which),soundBank->monsterTiming(e.classId,e.mode,which));
                         if(e.mode!=0)playImpact(e.hitClass);
                     } else if(e.mode==4||e.mode==5) {
-                        if(const auto file=soundBank->monsterAttack(e.classId,e.mode);!file.empty())audio->effect(file);
-                        if(const auto file=soundBank->monsterWeapon(e.classId,e.mode);!file.empty())audio->effect(file);
+                        delayedSound(soundBank->monsterSoundName(e.classId,e.mode,0),soundBank->monsterTiming(e.classId,e.mode,0));
+                        delayedSound(soundBank->monsterSoundName(e.classId,e.mode,1),soundBank->monsterTiming(e.classId,e.mode,1));
                     } else if(e.mode==6) {
                         static unsigned block=0;
                         if(const auto file=soundBank->file(std::string("block_weapon_")+std::to_string(1+block++%3));!file.empty())audio->effect(file);
@@ -800,9 +876,7 @@ static int run(int argc,wchar_t** argv) {
             // The player's items: picked up onto the cursor (cursor_pickup), put away or worn (the item's usesound), dropped on the
             // ground (its dropsound), a potion drunk from the belt or inventory (item_potion_drink). Gold picked up (item_gold)
             // and a new character level (cursor_level_up).
-            static std::map<uint32_t,std::pair<uint32_t,uint32_t>> itemsBefore; // id -> mode, code
-            static bool itemsKnown=false;static int32_t goldBefore=-1,levelBefore=-1;
-            static uint32_t itemsLevel=0;if(worldView.level!=itemsLevel){itemsLevel=worldView.level;itemsKnown=false;} // a new area's items are not drops
+            if(worldView.level!=itemsLevel){itemsLevel=worldView.level;itemsKnown=false;} // a new area's items are not drops
             std::map<uint32_t,std::pair<uint32_t,uint32_t>> itemsNow;
             for(const auto& item:worldView.items)if(!item.vendor)itemsNow[item.id]={item.mode,item.code};
             const bool trading=npcDialog.open;
@@ -864,7 +938,7 @@ static int run(int argc,wchar_t** argv) {
                 pendingImpossibleSound=false;
                 // A state whose client function is 90 (states.txt cltactivefunc, D2Client 0x6FAC2C90) keeps its skill's prgsound
                 // going while it lasts: Hurricane's wind.
-                if(stateTable&&skillTable)for(uint32_t s=0;s<192;++s)if(const auto* st=stateTable->find(s);st&&st->clientActive==90) {
+                if(stateTable&&skillTable)for(uint32_t s=0;s<256;++s)if(const auto* st=stateTable->find(s);st&&st->clientActive==90) {
                     const std::string key="state"+std::to_string(s);
                     if(p.states[s>>5]&(1u<<(s&31))) {
                         if(const auto* skill=st->skill.empty()?skillTable->withAuraState(st->name):skillTable->findByName(st->skill);skill&&!skill->progressSound.empty())
@@ -876,15 +950,13 @@ static int run(int argc,wchar_t** argv) {
                     static unsigned swing=0;audio->effect(swings[swing++%3]);
                 }
                 // The character's own cries: hit (get-hit mode 4, sounds.txt <class>_hit_1-5) and death (mode 0, <class>_death_1-3).
-                static uint8_t heroModeBefore=255;static unsigned cry=0;
-                if(p.mode!=heroModeBefore&&characterClass>=0&&characterClass<7&&(p.mode==4||(p.mode==0&&heroModeBefore!=255))) {
+                const auto cryEvent=heroCry.observe(p.mode,worldView.vitals.maxLife>0&&characterClass>=0&&characterClass<7);
+                if(cryEvent!=d2::HeroCry::None) {
                     static const char* heroes[]={"amazon","sorceress","necromancer","paladin","barbarian","druid","assassin"};
-                    const bool death=p.mode==0;
+                    const bool death=cryEvent==d2::HeroCry::Death;
                     play(std::string(heroes[characterClass])+(death?"_death_":"_hit_")+std::to_string(1+cry++%(death?3:5)));
                 }
-                heroModeBefore=p.mode;
                 // Missiles: their travel sound when they appear, their hit sound when one near the player ends (missiles.txt).
-                static std::map<int64_t,std::pair<uint32_t,d2::FixedPoint>> missilesBefore;
                 std::map<int64_t,std::pair<uint32_t,d2::FixedPoint>> missilesNow;
                 for(const auto& e:worldView.entities)if(e.kind==d2::EntityKind::Missile)missilesNow[e.id]={e.classId,e.position};
                 if(missileTable) {
@@ -898,7 +970,6 @@ static int run(int argc,wchar_t** argv) {
                         if(nearPlayer(m.second))play(info->hitSound);
                     }
                     // pCltDoFunc 9: ProgSound at CltParam1-2 frames after the marker appears (the rock is about to land).
-                    static std::map<int64_t,uint64_t> meteorImpact; // tick to play; 0 once it has played
                     for(const auto& [id,m]:missilesNow)if(const auto* info=missileTable->find(m.first);info&&info->clientDo==9&&info->clientParam[0]>2&&!info->progressSound.empty()) {
                         const auto when=meteorImpact.find(id);
                         if(when==meteorImpact.end())meteorImpact[id]=worldView.tick+uint64_t(info->clientParam[0]-2);
@@ -909,7 +980,6 @@ static int run(int argc,wchar_t** argv) {
                 missilesBefore=std::move(missilesNow);
                 // Footsteps: two a walk or run cycle, by the character's weight (Amazon, Sorceress and Assassin light,
                 // Necromancer and Druid medium, Barbarian and Paladin heavy) and the ground (stone inside, dirt outside).
-                static int stepBefore=-1;static unsigned stepCount=0;
                 if(p.moving&&(p.mode==2||p.mode==3||p.mode==6)) {
                     const auto found=movementCharacters.find(p.mode);
                     const unsigned frames=std::max(1u,found!=movementCharacters.end()?found->second.framesPerDirection:walkingCharacter.framesPerDirection);
@@ -1342,7 +1412,7 @@ static int run(int argc,wchar_t** argv) {
                     std::cout<<"Stats "<<when<<": skill "<<castSkillId<<" level "<<skillLevelOf(castSkillId)<<", life "<<v.life<<"/"<<v.maxLife<<", mana "<<v.mana<<"/"<<v.maxMana
                         <<", defense "<<s.defense<<", attack "<<s.attackRating<<", damage "<<s.damageMin<<"-"<<s.damageMax
                         <<", resist "<<s.resist[0]<<"/"<<s.resist[1]<<"/"<<s.resist[2]<<"/"<<s.resist[3]<<", strength "<<worldView.stats[0]<<", states";
-                    for(uint32_t st=0;st<192;++st)if(worldView.player().states[st>>5]&(1u<<(st&31)))std::cout<<" "<<st;
+                    for(uint32_t st=0;st<256;++st)if(worldView.player().states[st>>5]&(1u<<(st&31)))std::cout<<" "<<st;
                     std::cout<<"\n";
                 };
                 statLog("before");
@@ -1414,7 +1484,7 @@ static int run(int argc,wchar_t** argv) {
                     // Test hook: keep the game running N ticks after the cast and report, for each enemy, its distance from the
                     // player and its life at the start and the end, the modes it went through and its states at the start
                     // (a behaviour curse: Terror flees, Confuse and Attract fight each other, Iron Maiden hurts its attacker).
-                    struct Watched {double from=0,to=0;int32_t lifeFrom=0,lifeTo=0;uint32_t classId=0;std::set<int> modes;std::array<uint32_t,6> states{};bool seen=false;};
+                    struct Watched {double from=0,to=0;int32_t lifeFrom=0,lifeTo=0;uint32_t classId=0;std::set<int> modes;std::array<uint32_t,8> states{};bool seen=false;};
                     std::map<d2::EntityId,Watched> watched;
                     auto distance=[&](const d2::EntitySnapshot& e){const double dx=double(e.position.x-worldView.player().position.x)/d2::fixedOne,dy=double(e.position.y-worldView.player().position.y)/d2::fixedOne;return std::sqrt(dx*dx+dy*dy);};
                     for(const auto& e:worldView.entities)if(e.kind==d2::EntityKind::Enemy)watched[e.id]={distance(e),distance(e),e.life,e.life,e.classId,{int(e.mode)},e.states,true};
@@ -1451,7 +1521,7 @@ static int run(int argc,wchar_t** argv) {
                         std::cout<<"Watch: enemy "<<id-1000<<" class "<<w.classId<<", distance "<<std::lround(w.from)<<" -> "<<std::lround(w.to)<<", life "<<w.lifeFrom<<" -> "<<w.lifeTo<<", modes";
                         for(int m:w.modes)std::cout<<" "<<m;
                         std::cout<<", states";
-                        for(uint32_t s=0;s<192;++s)if(w.states[s>>5]&(1u<<(s&31)))std::cout<<" "<<s;
+                        for(uint32_t s=0;s<256;++s)if(w.states[s>>5]&(1u<<(s&31)))std::cout<<" "<<s;
                         std::cout<<"\n";
                     }
                 }
@@ -2048,6 +2118,19 @@ static int run(int argc,wchar_t** argv) {
 #endif
                 saveRequestedShot([&](const std::filesystem::path& p){renderer.readback(p);});renderer.present();yieldFrame(0);
             } else yieldFrame(50);
+            if(d2::assetTimingEnabled()) {
+                static auto timingReport=std::chrono::steady_clock::now();
+                const auto timingNow=std::chrono::steady_clock::now();
+                // Frame times in the same window: how many, the slowest, and how many missed 30 and 20 fps.
+                static auto frameStart=timingNow;static double slowest=0;static int frames=0,over33=0,over50=0;
+                const double frameMs=std::chrono::duration<double,std::milli>(timingNow-frameStart).count();frameStart=timingNow;
+                ++frames;slowest=std::max(slowest,frameMs);over33+=frameMs>33.4;over50+=frameMs>50;
+                if(timingNow-timingReport>=std::chrono::seconds(5)) {
+                    d2::reportAssetTimes(std::cout,"main-thread-window");timingReport=timingNow;
+                    std::cout<<"Asset timing frames "<<frames<<" slowest_ms="<<int(slowest)<<" over33="<<over33<<" over50="<<over50<<std::endl;
+                    frames=over33=over50=0;slowest=0;
+                }
+            }
 #ifdef __EMSCRIPTEN__
             break; // one frame; the browser calls us again
 #endif
@@ -2064,7 +2147,9 @@ static int run(int argc,wchar_t** argv) {
                     // As gameMain does on the desktop: the game is closed (D2Game saves the character), the client's state is
                     // reset and the menus start again.
                     world.reset();
+                    backToCharacterSelect=leaveToCharacterSelect;
                     resetClientState();
+                    leaveToCharacterSelect=false;
                     backFromGame=true;
                     std::cout<<"Back to the main menu"<<std::endl;
                     webRun();
@@ -2091,7 +2176,9 @@ int gameMain(int argc,wchar_t** argv) {
         const bool again=leaveToMainMenu||(code==0&&testReturns-->0);
         world.reset();
         if(!again)d2::endProgram(code);
+        backToCharacterSelect=leaveToCharacterSelect;
         resetClientState();
+        leaveToCharacterSelect=false;
         backFromGame=true;
         std::cout<<"Back to the main menu"<<std::endl;
     }

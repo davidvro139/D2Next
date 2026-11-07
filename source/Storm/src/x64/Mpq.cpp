@@ -22,7 +22,10 @@ static_assert(sizeof(TCHAR) == sizeof(wchar_t), "StormLib must be used with wide
 static_assert(sizeof(TCHAR) == sizeof(char), "StormLib must be used with UTF-8 paths");
 #endif
 
+#include <LooseFiles.h>
+
 #include <algorithm>
+#include <cstdlib>
 #include <cerrno>
 #include <mutex>
 #include <string>
@@ -108,9 +111,27 @@ bool closeArchive(void* pArchive)
 	return SFileCloseArchive(pArchive) != 0;
 }
 
+// A mod's loose files (D2NEXT_LOOSE_DIR: <game>/Mods/<name>), read before the archives. Indexed once.
+static const d2loose::Folder& looseFiles()
+{
+	static const d2loose::Folder folder = [] {
+		const char* dir = std::getenv("D2NEXT_LOOSE_DIR");
+		return dir && *dir ? d2loose::Folder(std::filesystem::u8path(dir)) : d2loose::Folder();
+	}();
+	return folder;
+}
+
 bool openFile(const char* szName, void** ppFile)
 {
 	HANDLE file = nullptr;
+	if (const auto* loose = looseFiles().find(szName))
+	{
+		if (SFileOpenFileEx(nullptr, loose->u8string().c_str(), SFILE_OPEN_LOCAL_FILE, &file))
+		{
+			*ppFile = file;
+			return true;
+		}
+	}
 	{
 		std::lock_guard<std::mutex> lock(gMutex);
 		for (const Archive& archive : gArchives)

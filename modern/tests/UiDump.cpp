@@ -90,7 +90,7 @@ int wmain(int argc,wchar_t** argv){try{
         // one's pixels and their bottom rows (y grows downward), to see which way the map's shadows fall.
         const auto bytes=archives.read(std::filesystem::path(argv[3]).string());
         const auto palette=d2::decodePalette(archives.read("data\\global\\palette\\act1\\pal.dat"));
-        std::vector<d2::Tile> tiles;for(uint32_t i=0;i<d2::dt1TileCount(bytes);++i)tiles.push_back(d2::decodeDt1(bytes,palette,i));
+        std::vector<d2::Tile> tiles;for(uint32_t i=0;i<d2::dt1TileCount(bytes);++i){auto t=d2::decodeDt1(bytes,palette,i);t.image=d2::Image{t.image.width,t.image.height,t.image.expanded()};tiles.push_back(std::move(t));}
         auto measure=[](const d2::Tile& t){double sx=0,sy=0,n=0;int bottom=-99999,top=99999;
             for(uint32_t y=0;y<t.image.height;++y)for(uint32_t x=0;x<t.image.width;++x)if(t.image.rgba[(size_t(y)*t.image.width+x)*4+3]){sx+=int(x)+t.originX;sy+=int(y)+t.originY;++n;bottom=std::max(bottom,int(y)+t.originY);top=std::min(top,int(y)+t.originY);}
             return std::array<double,5>{n?sx/n:0,n?sy/n:0,n,double(top),double(bottom)};};
@@ -145,7 +145,7 @@ int wmain(int argc,wchar_t** argv){try{
         d2::Image out{400,400,d2::Bytes(400*400*4,0)};
         for(size_t i=0;i<out.rgba.size();i+=4){out.rgba[i]=out.rgba[i+1]=out.rgba[i+2]=30;out.rgba[i+3]=255;}
         for(uint32_t i=0;i<d2::dt1TileCount(bytes);++i) {
-            const auto t=d2::decodeDt1(bytes,palette,i);if(t.mainIndex!=main||t.subIndex!=sub||t.orientation==0)continue;
+            auto t=d2::decodeDt1(bytes,palette,i);t.image=d2::Image{t.image.width,t.image.height,t.image.expanded()};if(t.mainIndex!=main||t.subIndex!=sub||t.orientation==0)continue;
             std::cout<<"orientation "<<t.orientation<<" origin "<<t.originX<<","<<t.originY<<" size "<<t.image.width<<"x"<<t.image.height<<"\n";
             for(uint32_t y=0;y<t.image.height;++y)for(uint32_t x=0;x<t.image.width;++x) {
                 const size_t s=(size_t(y)*t.image.width+x)*4;if(!t.image.rgba[s+3])continue;

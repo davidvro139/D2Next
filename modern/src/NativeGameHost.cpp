@@ -45,6 +45,10 @@ int run(int argc,wchar_t** argv) {
     d2::native::Session::Settings settings;
     settings.dlls=argv[1];settings.game=argv[2];settings.save=argv[3];settings.seed=uint32_t(std::stoul(argv[4]));
     if(argc==6)settings.saveOut=argv[5];
+    d2::native::Hello hello;
+    transfer(GetStdHandle(STD_OUTPUT_HANDLE),&hello,sizeof(hello),true);
+    transfer(GetStdHandle(STD_INPUT_HANDLE),&hello,sizeof(hello),false);
+    if(!d2::native::compatible(hello))throw std::runtime_error("Incompatible native client protocol");
     static d2::native::Reply reply;
     auto session=d2::native::Session::start(settings,reply);
     transfer(GetStdHandle(STD_OUTPUT_HANDLE),&reply,sizeof(reply),true);

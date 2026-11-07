@@ -1,4 +1,5 @@
 #include "Assets.h"
+#include "AssetTiming.h"
 #include <algorithm>
 #include <cctype>
 #include <map>
@@ -30,6 +31,7 @@ using Key=std::tuple<uint32_t,uint32_t,uint32_t>;
 Key key(const MapCell& c) { return {(c.value>>20)&63,(c.value>>8)&255,c.orientation}; }
 }
 MapLayout decodeDs1(std::span<const uint8_t> bytes) {
+    AssetTimer timing(AssetStage::Ds1);
     Reader r{bytes}; MapLayout map;
     map.version=r.read();
     if(map.version<4||map.version>18)throw std::runtime_error("DS1 viewer supports layout versions 4 through 18");
@@ -85,7 +87,7 @@ MapScene buildMapScene(const MapLayout& map,const Archives& archives) {
         for(uint32_t i=0;i<count;++i) {
             auto t=decodeDt1(b,palette,i); Key k{t.mainIndex,t.subIndex,t.orientation};
             if(tiles.contains(k))continue; // Stable first variant for this inspection slice.
-            pixelBudget+=t.image.rgba.size();
+            pixelBudget+=t.image.storedBytes();
             if(pixelBudget>256*1024*1024)throw std::runtime_error("Map tile cache exceeds 256 MiB");
             tiles.emplace(k,uint32_t(result.tiles.size()));
             result.tiles.push_back(std::move(t));
@@ -138,10 +140,10 @@ Image composeMap(const MapScene& scene) {
     Image result{width,height,Bytes(size_t(width)*height*4,0)};
     for(const auto& draw:scene.placements){const auto& img=scene.tiles.at(draw.tile).image;
         for(uint32_t y=0;y<img.height;++y)for(uint32_t x=0;x<img.width;++x){
-            size_t src=(size_t(y)*img.width+x)*4;if(!img.rgba[src+3])continue;
+            const size_t src=size_t(y)*img.width+x;if(!img.alpha(src))continue;
             size_t dst=(size_t(y+draw.y)*width+x+draw.x)*4;
             if(draw.shadow){for(int c=0;c<3;++c)result.rgba[dst+c]=uint8_t(result.rgba[dst+c]/2);}
-            else std::copy_n(img.rgba.begin()+src,4,result.rgba.begin()+dst);
+            else {const auto c=img.color(src);std::copy(c.begin(),c.end(),result.rgba.begin()+dst);}
         }
     }
     return result;

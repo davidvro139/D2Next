@@ -2,8 +2,10 @@
 // See ../external/Diablerie-NOTICE.md.
 #include "Assets.h"
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <unordered_map>
 namespace d2 {
 Animation loadCharacter(const Archives& archives,const Palette& palette,const std::string& mode) {
     return loadCharacter(archives,palette,mode,CharacterAppearance{},"chars");
@@ -33,9 +35,13 @@ Animation loadCharacter(const Archives& archives,const Palette& palette,const st
         std::cout<<"Character layer: "<<path<<"\n";
         // Some layers have no file for some gear and stances (a new Necromancer's s3 armour, an Assassin's buckler with a
         // katar); the game draws nothing there, so the layer is left out.
-        Bytes file;
+        // A few monsters' layers are DC6 files instead (Diablo, Mephisto, Tyrael...); the game reads either.
+        Bytes file;bool dc6=false;
         try {file=archives.read(path);}
-        catch(const std::exception&) {std::cout<<"Character layer missing, not drawn: "<<path<<"\n";continue;}
+        catch(const std::exception&) {
+            try {file=archives.read(path.substr(0,path.size()-4)+".dc6");dc6=true;}
+            catch(const std::exception&) {std::cout<<"Character layer missing, not drawn: "<<path<<"\n";continue;}
+        }
         // Coloured gear: the layer through its item's colour map (dataglobalitemspalette<Transform file>.dat, the colour's
         // 256 indices), as D2Client draws a component with ITEMS_GetColor's map.
         Palette shifted=palette;
@@ -47,7 +53,7 @@ Animation loadCharacter(const Archives& archives,const Palette& palette,const st
                 if(at+256<=maps.size())for(size_t i=0;i<256;++i)shifted[i]=palette[maps[at+i]];
             } catch(const std::exception&) {}
         }
-        parts[id]=decodeDcc(file,shifted);
+        parts[id]=dc6?decodeDc6Animation(file,shifted):decodeDcc(file,shifted);
         for(const auto& frame:parts[id].frames)layerBytes+=frame.image.rgba.size();
         if(layerBytes>256*1024*1024)throw std::runtime_error("Character layers exceed 256 MiB");
         // A layer with fewer frames than the COF (a weapon's layer in a mode it is not meant for) holds its last frame. A
@@ -110,7 +116,32 @@ Animation loadCharacter(const Archives& archives,const Palette& palette,const st
         }
         result.frames.push_back(std::move(output));
     }
+    compactAnimation(result);
     return result;
+}
+void compactAnimation(Animation& animation) {
+    std::vector<std::array<uint8_t,4>> table;std::unordered_map<uint32_t,uint8_t> index;index.reserve(512);
+    auto key=[](const uint8_t* c){uint32_t k;std::memcpy(&k,c,4);return k;};
+    auto collect=[&](const Image& image) {
+        for(size_t i=0;i+3<image.rgba.size();i+=4) {
+            // Fully transparent pixels draw nothing whatever their colour; they share one entry.
+            const uint32_t k=image.rgba[i+3]?key(&image.rgba[i]):0;
+            if(index.count(k))continue;
+            if(table.size()==256)return false;
+            index[k]=uint8_t(table.size());table.push_back({image.rgba[i],image.rgba[i+1],image.rgba[i+2],image.rgba[i+3]});
+            if(!k)table.back()={0,0,0,0};
+        }
+        return true;
+    };
+    for(const auto& f:animation.frames)if(!collect(f.image)||!collect(f.glow)||!collect(f.shadowMask))return;
+    auto colors=std::make_shared<const std::vector<std::array<uint8_t,4>>>(std::move(table));
+    auto convert=[&](Image& image) {
+        if(image.rgba.empty())return;
+        image.indices.resize(image.rgba.size()/4);
+        for(size_t i=0;i<image.indices.size();++i)image.indices[i]=index[image.rgba[i*4+3]?key(&image.rgba[i*4]):0];
+        image.colors=colors;Bytes{}.swap(image.rgba);
+    };
+    for(auto& f:animation.frames){convert(f.image);convert(f.glow);convert(f.shadowMask);}
 }
 unsigned fileDirection(unsigned dirs,unsigned d) {
     // 8 directions are stored S-W, N-W, N-E, S-E, S, W, N, E; every doubling appends the in-between directions in order.

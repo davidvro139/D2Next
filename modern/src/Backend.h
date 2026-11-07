@@ -28,7 +28,7 @@ struct EntitySnapshot {
     uint8_t mode=0,direction=0; // native animation mode and path direction (0..63)
     uint16_t animSpeed=256;
     uint8_t services=0; // town people: bit 0 sells items, bit 1 gambles
-    std::array<uint32_t,6> states{}; // native backends: the unit's states (states.txt rows) as bits
+    std::array<uint32_t,8> states{}; // native backends: the unit's states (states.txt rows) as bits
     // Native monsters: MONTYPEFLAG_* (2 superunique, 4 champion, 8 unique, 16 minion, 64 ghostly), the colour transform
     // (RandTransforms.dat map + 1, 0 none), special abilities (monumod.txt ids), the name's string ids (see native::Unit) and
     // the COF components.

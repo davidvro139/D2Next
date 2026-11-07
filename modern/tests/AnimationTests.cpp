@@ -40,7 +40,7 @@ int main(int argc,char** argv){try {
         for(const auto* mode:{"tn","tw"}) {
             auto character=d2::loadCharacter(archives,pal,mode);
             size_t opaque=0;for(const auto& f:character.frames) {
-                size_t pixels=0;for(size_t p=3;p<f.image.rgba.size();p+=4)pixels+=f.image.rgba[p]!=0;
+                size_t pixels=0;for(size_t p=0;p<size_t(f.image.width)*f.image.height;++p)pixels+=f.image.alpha(p)!=0;
                 require(pixels>100);opaque+=pixels;
             }
             require(character.frames[0].image.rgba!=character.frames[1].image.rgba);

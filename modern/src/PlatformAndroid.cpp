@@ -2,6 +2,7 @@
 // a user-selected SAF folder holds the MPQs in place and mirrors saves, settings, and logs for access outside the app.
 #include "Platform.h"
 #include "ProgramPath.h"
+#include <cctype>
 #include <SDL3/SDL.h>
 #include <cstdio>
 #include <filesystem>
@@ -11,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <unistd.h>
+#include <sys/system_properties.h>
 #include <vector>
 int gameMain(int argc,wchar_t** argv); // Main.cpp
 namespace d2 {
@@ -125,6 +127,13 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int,char**) {
         }
     }
     d2::setProgramDirectory(folder);
+    char assetTiming[PROP_VALUE_MAX]{};
+    __system_property_get("debug.d2next.profile",assetTiming);
+    if(std::string(assetTiming)=="1")d2::setEnvironment("D2NEXT_ASSET_TIMING","1");
+    // A mod to play (a folder in MPQ/Mods), for testing until the launcher offers the choice.
+    char mod[PROP_VALUE_MAX]{};
+    __system_property_get("debug.d2next.mod",mod);
+    if(mod[0])d2::setEnvironment("D2NEXT_MOD",mod);
     d2::setEnvironment("D2NEXT_SAVE_DIR",(folder/"Save").string().c_str());
     const auto logPath=folder/"d2next.log",prevLog=folder/"d2next.prev.log";
     std::error_code logError;
@@ -151,6 +160,17 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int,char**) {
         else
             reportStartupError(message);
         return 1;
+    }
+    // The mod chosen in the launcher (mod.txt, written on Launch), unless debug.d2next.mod already named one.
+    if(!mod[0]) {
+        std::string chosen;
+        if(std::FILE* file=std::fopen((folder/"mod.txt").c_str(),"rb")) {
+            char buffer[256]{};
+            chosen.assign(buffer,std::fread(buffer,1,sizeof(buffer)-1,file));
+            std::fclose(file);
+        }
+        while(!chosen.empty()&&std::isspace(static_cast<unsigned char>(chosen.back())))chosen.pop_back();
+        if(!chosen.empty())d2::setEnvironment("D2NEXT_MOD",chosen.c_str());
     }
     const auto mpq=folder/"MPQ";
     std::string missing;

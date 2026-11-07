@@ -39,7 +39,8 @@ class D3D11Backend final:public GpuBackend {
         D3D11_TEXTURE2D_DESC td{}; td.Width=image.width; td.Height=image.height;
         td.MipLevels=td.ArraySize=td.SampleDesc.Count=1; td.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
         td.Usage=D3D11_USAGE_IMMUTABLE; td.BindFlags=D3D11_BIND_SHADER_RESOURCE;
-        D3D11_SUBRESOURCE_DATA data{image.rgba.data(),image.width*4,0};
+        const Bytes expanded=image.indices.empty()?Bytes{}:image.expanded();
+        D3D11_SUBRESOURCE_DATA data{(expanded.empty()?image.rgba:expanded).data(),image.width*4,0};
         ComPtr<ID3D11Texture2D> resource;
         check(device->CreateTexture2D(&td,&data,&resource),"Upload asset texture");
         ComPtr<ID3D11ShaderResourceView> view;

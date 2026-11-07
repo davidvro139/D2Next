@@ -1,11 +1,21 @@
+#include "ArchivePlan.h"
+#include "AssetTiming.h"
 #include "NativeTown.h"
+#include "TileHeaderIndex.h"
 #include "NativeLink.h"
+#include "Tables.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
+#include <chrono>
+#include <iostream>
 #include <map>
+#include <mutex>
+#include <thread>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <tuple>
@@ -61,10 +71,72 @@ struct Host {
         modules.push_back(m);return m;
     }
 };
+std::map<std::pair<std::string,uint32_t>,std::weak_ptr<Tile>> sharedTiles;
+size_t heldTileFileBytes=0; // the act's DT1 files kept in memory (profiling)
+std::string tileKey(std::string path) {
+    std::replace(path.begin(),path.end(),'/','\\');
+    for(auto& c:path)c=char(std::tolower(static_cast<unsigned char>(c)));
+    return path;
+}
+// The tile files of the levels next to a new scene (levels.txt Vis0-7, their LvlTypes.txt File 1-32), read on another
+// thread while that scene is played: reading them when the player walks on was most of a new area's load.
+struct TilePrefetch {
+    std::mutex lock;
+    std::map<std::string,Bytes> ready; // by tileKey
+    std::thread thread;
+    int act=-1;
+    std::unique_ptr<Archives> archives; // the worker's own, opened once (only one worker runs at a time)
+    ~TilePrefetch(){if(thread.joinable())thread.join();}
+    void start(const std::filesystem::path& root,int sceneAct,std::vector<int> levels,std::set<std::string> have) {
+        if(thread.joinable())thread.join();
+        {std::lock_guard<std::mutex> hold(lock);if(act!=sceneAct){ready.clear();act=sceneAct;}for(const auto& [key,bytes]:ready)have.insert(key);}
+        thread=std::thread([this,root,levels=std::move(levels),have=std::move(have)]() mutable {
+            try {
+                if(!archives)archives=std::make_unique<Archives>(root);
+                auto table=[&](const char* name){return archives->read(std::string("data\\global\\excel\\")+name);};
+                const auto levelBytes=table("levels.txt"),typeBytes=table("LvlTypes.txt");
+                const TextTable levelRows(std::string_view(reinterpret_cast<const char*>(levelBytes.data()),levelBytes.size()));
+                const TextTable types(std::string_view(reinterpret_cast<const char*>(typeBytes.data()),typeBytes.size()));
+                auto number=[](const std::string& v){return v.empty()||!std::isdigit(static_cast<unsigned char>(v[0]))?-1:std::stoi(v);};
+                std::map<int,size_t> rowOf;
+                for(size_t r=0;r<levelRows.rows();++r)if(const int id=number(levelRows.cell(r,"Id"));id>0)rowOf[id]=r;
+                std::set<int> next;
+                for(int id:levels)if(auto it=rowOf.find(id);it!=rowOf.end())
+                    for(int v=0;v<8;++v)if(const int n=number(levelRows.cell(it->second,"Vis"+std::to_string(v)));n>0)next.insert(n);
+                for(int id:levels)next.erase(id);
+                size_t read=0;const auto started=std::chrono::steady_clock::now();
+                for(int id:next) {
+                    auto it=rowOf.find(id);if(it==rowOf.end())continue;
+                    const int type=number(levelRows.cell(it->second,"LevelType"));
+                    if(type<0||size_t(type)>=types.rows())continue;
+                    for(int f=1;f<=32;++f) {
+                        const auto file=types.cell(size_t(type),"File "+std::to_string(f));
+                        if(file.empty()||file=="0")continue;
+                        const auto key=tileKey("data\\global\\tiles\\"+file);
+                        if(!have.insert(key).second)continue;
+                        Bytes bytes;try{bytes=archives->read(key);}catch(const std::exception&){continue;}
+                        ++read;std::lock_guard<std::mutex> hold(lock);ready.emplace(key,std::move(bytes));
+                    }
+                }
+                if(assetTimingEnabled())std::cout<<"Asset timing tile-prefetch "<<next.size()<<" levels, "<<read<<" files in "<<std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count()<<" ms"<<std::endl;
+            } catch(const std::exception&) {}
+        });
+    }
+    bool take(const std::string& key,Bytes& out) {
+        std::lock_guard<std::mutex> hold(lock);
+        auto it=ready.find(key);if(it==ready.end())return false;
+        out=std::move(it->second);ready.erase(it);return true;
+    }
+};
+TilePrefetch tilePrefetch;
 }
 NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
     const std::filesystem::path& gameDirectory,const Archives& archives,uint32_t seed,const std::vector<int>& levelIds,bool withNeighbours,
     const std::function<void()>& progress) {
+    AssetTimer sceneTiming(AssetStage::Scene);
+    archives.validateCurrent();
+    if(!std::filesystem::equivalent(archives.root(),gameDirectory))
+        throw std::runtime_error("Scene archive directory differs from native game data directory");
     auto tickProgress=[&]{if(progress)progress();};
     if(levelIds.empty())throw std::runtime_error("Native scene needs at least one level");
     tickProgress();
@@ -86,31 +158,25 @@ NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
     host.common=host.load(directory,L"D2Common.dll",Library::D2Common);
     host.freeAct=ordinal<void(__stdcall*)(void*)>(host.common,10039);
 #ifdef D2MODERN_INPROCESS
-    native::useGameData(gameDirectory);
+    {AssetTimer tableTiming(AssetStage::Tables);native::useGameData(gameDirectory);}
 #else
     auto openArchive=ordinal<int(__stdcall*)(const char*,int,int,void**)>(host.storm,266);
     host.closeArchive=ordinal<int(__stdcall*)(void*)>(host.storm,252);
-    auto core=gameDirectory/"D2SE/CORES/1.10f/Patch_D2.mpq";
-    // The 1.10f data tables are only in the patch archive; without it D2Common reads a table that is not there and crashes.
-    if(!std::filesystem::exists(core)&&!std::filesystem::exists(gameDirectory/"Patch_D2.mpq"))
-        throw std::runtime_error("Patch_D2.mpq (the Diablo II 1.10f patch) is missing from "+gameDirectory.string()+". Copy it there from your Diablo II folder.");
-    std::vector<std::filesystem::path> paths={std::filesystem::exists(core)?core:gameDirectory/"Patch_D2.mpq",
-        gameDirectory/"d2exp.mpq",gameDirectory/"d2data.mpq",gameDirectory/"d2char.mpq",gameDirectory/"d2sfx.mpq"};
-    int priority=5000;
-    for(const auto& path:paths) {
-        if(std::filesystem::exists(path)) {
-            void* handle=nullptr;
-            if(!openArchive(std::filesystem::absolute(path).string().c_str(),priority,2,&handle))
-                throw std::runtime_error("Cannot mount native archive: "+path.string());
-            host.archives.push_back(handle);
-        }
-        priority-=1000;
+    const auto paths=archivePlan(gameDirectory);
+    for(size_t i=0;i<paths.size();++i) {
+        void* handle=nullptr;
+        if(!openArchive(std::filesystem::absolute(paths[i]).string().c_str(),archivePriority(i),2,&handle))
+            throw std::runtime_error("Cannot mount native archive: "+paths[i].string());
+        host.archives.push_back(handle);
     }
     host.unload=ordinal<void(__stdcall*)()>(host.common,10575);
-    ordinal<void(__stdcall*)(void*,int,int)>(host.common,10576)(nullptr,1,1);host.tables=true;
+    {AssetTimer tableTiming(AssetStage::Tables);ordinal<void(__stdcall*)(void*,int,int)>(host.common,10576)(nullptr,1,1);host.tables=true;}
 #endif
+    archives.validateCurrent(); // client archives must still match the initialized native tables
+    {AssetTimer actTiming(AssetStage::Act);
     host.act=ordinal<void*(__stdcall*)(uint8_t,uint32_t,int,void*,uint8_t,void*,int,void*,void*)>(host.common,10038)
         (uint8_t(act),seed,0,nullptr,0,nullptr,1,nullptr,nullptr);
+    }
     if(!host.act)throw std::runtime_error("Native town act allocation failed");
     tickProgress();
     auto drlg=ordinal<void*(__stdcall*)(void*)>(host.common,10088)(host.act);
@@ -123,7 +189,7 @@ NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
         if(!level||read<int32_t>(level,8)!=levelId)throw std::runtime_error("Unsupported native level layout");
         int lx=read<int32_t>(level,36),ly=read<int32_t>(level,40),lw=read<int32_t>(level,44),lh=read<int32_t>(level,48);
         if((lx<0||ly<0)&&lw>0&&lh>0) {
-            initLevel(level);
+            {AssetTimer levelTiming(AssetStage::Level);initLevel(level);}
             lx=read<int32_t>(level,36);ly=read<int32_t>(level,40);lw=read<int32_t>(level,44);lh=read<int32_t>(level,48);
         }
         if(lw<=0||lh<=0||lw>256||lh>256||lx<0||ly<0||lx>100000||ly>100000)
@@ -158,9 +224,20 @@ NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
     auto coords=ordinal<void(__stdcall*)(void*,int*)>(host.common,10034);
     auto collide=ordinal<uint16_t(__stdcall*)(void*,int,int,unsigned,unsigned,uint16_t)>(host.common,10120);
     std::set<void*> seen;std::vector<void*> rooms;
+    {AssetTimer roomTiming(AssetStage::Rooms);
+    // Only points inside a wanted level's rectangle, in the same order: a point in no room makes the look-up walk every room
+    // of the act, and most of the box around several levels is empty.
+    std::vector<std::array<int,4>> rects;
+    for(int levelId:wanted) {
+        auto level=ordinal<void*(__stdcall*)(void*,int)>(host.common,10005)(drlg,levelId);
+        rects.push_back({read<int32_t>(level,36),read<int32_t>(level,40),read<int32_t>(level,44),read<int32_t>(level,48)});
+    }
+    auto inside=[&](int x,int y){for(const auto& r:rects)if(x>=r[0]&&x<r[0]+r[2]&&y>=r[1]&&y<r[1]+r[3])return true;return false;};
     for(int y=y0;y<y0+height;y+=2)for(int x=x0;x<x0+width;x+=2) {
+        if(!inside(x,y))continue;
         auto room=stream(host.act,x,y);
         if(room&&wanted.count(roomLevel(room))&&seen.insert(room).second)rooms.push_back(room);
+    }
     }
     if(rooms.empty())throw std::runtime_error("Native town has no rooms");
     tickProgress();
@@ -169,18 +246,31 @@ NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
     auto& grid=result.collision;grid.width=scene.cellsX*5;grid.height=scene.cellsY*5;
     grid.flags.resize(size_t(grid.width)*grid.height);grid.ground.resize(grid.flags.size());
     const auto palette=decodePalette(archives.read("data\\global\\palette\\act"+std::to_string(act+1)+"\\pal.dat"));
-    std::map<std::string,Bytes> files;std::map<void*,uint32_t> tileIndices;
-    size_t pixelBytes=0,fileBytes=0;
+    // The act's tile files stay in memory between scenes: every area of an act draws from the same few DT1 files, and
+    // reading them from the archives again was about 170 ms of each new area on the Redmi.
+    static int filesAct=-1;static std::map<std::string,Bytes> files;static std::map<std::string,TileHeaderIndex> headerIndices;static size_t fileBytes=0;
+    // Decoded tiles are shared with the other scenes still in memory (the current area and the recently left ones, see
+    // Main.cpp): a tile they already hold is not decoded or stored again. Held weakly, so a tile goes with its last scene.
+    if(filesAct!=act){files.clear();headerIndices.clear();sharedTiles.clear();fileBytes=0;filesAct=act;}
+    heldTileFileBytes=fileBytes;
+    auto sharedTile=[&](const std::string& path,const Bytes& bytes,uint32_t index) {
+        auto& slot=sharedTiles[{path,index}];
+        auto tile=slot.lock();
+        if(!tile){tile=std::make_shared<Tile>(decodeDt1(bytes,palette,index));slot=tile;}
+        return tile;
+    };
+    std::map<void*,uint32_t> tileIndices;
+    size_t pixelBytes=0;
     size_t resolvedTiles=0;
     // Whether a decoded tile is one flat colour (every drawn pixel the same), remembered per tile.
     std::map<uint32_t,bool> flatTiles;
     auto flatTile=[&](uint32_t index) {
         if(auto it=flatTiles.find(index);it!=flatTiles.end())return it->second;
-        const auto& rgba=scene.tiles[index].image.rgba;
-        bool flat=true,any=false;uint32_t first=0;
-        for(size_t p=0;p+3<rgba.size()&&flat;p+=4) {
-            if(!rgba[p+3])continue;
-            uint32_t c;std::memcpy(&c,&rgba[p],4);
+        const auto& image=scene.tiles[index].image;
+        bool flat=true,any=false;std::array<uint8_t,4> first{};
+        for(size_t p=0;p<size_t(image.width)*image.height&&flat;++p) {
+            if(!image.alpha(p))continue;
+            const auto c=image.color(p);
             if(!any){first=c;any=true;}else flat=c==first;
         }
         return flatTiles[index]=any&&flat;
@@ -195,16 +285,16 @@ NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
         const std::string path=name;
         auto it=files.find(path);
         if(it==files.end()) {
-            auto bytes=archives.read(path);fileBytes+=bytes.size();
-            if(fileBytes>128*1024*1024)throw std::runtime_error("Native tile files exceed budget");
-            it=files.emplace(path,std::move(bytes)).first;
+            Bytes bytes;
+            if(!tilePrefetch.take(tileKey(path),bytes))bytes=archives.read(path);
+            if(fileBytes+bytes.size()>128*1024*1024)throw std::runtime_error("Native tile files exceed budget");
+            fileBytes+=bytes.size();heldTileFileBytes=fileBytes;it=files.emplace(path,std::move(bytes)).first;
+            headerIndices.try_emplace(path,it->second);
         }
         const auto& bytes=it->second;const auto count=dt1TileCount(bytes);
         const auto start=read<uint32_t>(bytes.data(),272);
-        uint32_t index=0;
-        for(;index<count;++index)if(!std::memcmp(tile,bytes.data()+start+size_t(index)*96,96))break;
-        if(index==count)throw std::runtime_error("Native tile header does not match MPQ: "+path);
-        auto decoded=decodeDt1(bytes,palette,index);pixelBytes+=decoded.image.rgba.size();
+        const uint32_t index=headerIndices.at(path).find(tile);
+        auto decoded=sharedTile(path,bytes,index);pixelBytes+=decoded->image.storedBytes();
         if(pixelBytes>256*1024*1024)throw std::runtime_error("Native tile pixels exceed budget");
         const auto id=uint32_t(scene.tiles.size());scene.tiles.push_back(std::move(decoded));tileIndices[tile]=id;
         if((++resolvedTiles&15)==0)tickProgress();
@@ -222,24 +312,30 @@ NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
             std::vector<uint32_t> list;
             for(const auto& [rarity,k]:frames) {
                 if(k==index){list.push_back(id);continue;}
-                auto frame=decodeDt1(bytes,palette,k);pixelBytes+=frame.image.rgba.size();
+                auto frame=sharedTile(path,bytes,k);pixelBytes+=frame->image.storedBytes();
+                if(pixelBytes>256*1024*1024)throw std::runtime_error("Native tile pixels exceed budget");
                 list.push_back(uint32_t(scene.tiles.size()));scene.tiles.push_back(std::move(frame));
             }
             if(list.size()>1){scene.tileFrames.resize(scene.tiles.size());scene.tileFrames[id]=std::move(list);}
         }
         return id;
     };
+    // Read once: getenv walks the whole environment, and this loop runs for every tile placed.
+    static const bool debugSpecial=std::getenv("D2MODERN_DEBUG_SPECIAL")!=nullptr,debugAnimated=std::getenv("D2MODERN_DEBUG_ANIMATED")!=nullptr;
     int left=0,top=0,right=1,bottom=1;
     size_t processedRooms=0,processedPlacements=0;
     for(auto room:rooms) {
         if((processedRooms++&1)==0)tickProgress();
         int c[8]{};coords(room,c);
         result.roomAreas.push_back({c[0]-x0*5,c[1]-y0*5,c[2],c[3],roomLevel(room)});
+        {AssetTimer collisionTiming(AssetStage::Collision);
         for(int y=std::max(c[1],y0*5);y<std::min(c[1]+c[3],(y0+height)*5);++y)
             for(int x=std::max(c[0],x0*5);x<std::min(c[0]+c[2],(x0+width)*5);++x) {
                 const auto at=size_t(y-y0*5)*grid.width+x-x0*5;
                 grid.ground[at]=1;grid.flags[at]=collide(room,x,y,1,1,0x3c01)?collideSolid:0;
             }
+        }
+        AssetTimer placeTiming(AssetStage::TilePlace);
         for(int ordinalNumber:{10030,10031,10032}) {
             int count=0;
             auto data=ordinal<const NativeTile*(__stdcall*)(void*,int*)>(host.common,ordinalNumber)(room,&count);
@@ -257,15 +353,15 @@ NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
                 // diamond of a single colour, the only tile of that kind, so the riverbanks of the Rogue Encampment get it. The
                 // game shows nothing there; a wall drawn in one flat colour is an editor marker, not art.
                 if(tile.orientation>=1&&tile.orientation<=14&&tile.orientation!=13&&flatTile(index)) { // not shadows (13), which are one flat colour
-                    if(std::getenv("D2MODERN_DEBUG_SPECIAL"))std::fprintf(stderr,"flat wall o%u main %u sub %u at cell %d,%d skipped (%s)\n",tile.orientation,tile.mainIndex,tile.subIndex,x,y,read<const char*>(t.tile,96));
+                    if(debugSpecial)std::fprintf(stderr,"flat wall o%u main %u sub %u at cell %d,%d skipped (%s)\n",tile.orientation,tile.mainIndex,tile.subIndex,x,y,read<const char*>(t.tile,96));
                     continue;
                 }
-                if(std::getenv("D2MODERN_DEBUG_SPECIAL")&&(tile.orientation==10||tile.orientation==11))
+                if(debugSpecial&&(tile.orientation==10||tile.orientation==11))
                     std::fprintf(stderr,"special tile o%u main %u sub %u at cell %d,%d: %ux%u\n",tile.orientation,tile.mainIndex,tile.subIndex,x,y,tile.image.width,tile.image.height);
                 const int px=(x-y)*80+tile.originX,py=(x+y)*40+tile.originY+(tile.orientation==0?0:tile.orientation==15?-tile.roofHeight:80); // walls stand on the bottom corner of their cell (80 px below the floor tile's top); roofs are raised by their roof height // roofs float above the walls
                 scene.placements.push_back({index,px,py,uint32_t(x),uint32_t(y),tile.orientation==13});
                 if((++processedPlacements&255)==0)tickProgress();
-                if(std::getenv("D2MODERN_DEBUG_ANIMATED")&&index<scene.tileFrames.size()&&!scene.tileFrames[index].empty())
+                if(debugAnimated&&index<scene.tileFrames.size()&&!scene.tileFrames[index].empty())
                     std::fprintf(stderr,"animated tile o%u main %u sub %u at cell %d,%d: %zu frames\n",tile.orientation,tile.mainIndex,tile.subIndex,x,y,scene.tileFrames[index].size());
                 left=std::min(left,px);top=std::min(top,py);
                 right=std::max(right,px+int(tile.image.width));bottom=std::max(bottom,py+int(tile.image.height));
@@ -284,6 +380,14 @@ NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
     scene.dependencies=uint32_t(files.size());
     for(auto& p:scene.placements){p.x-=left;p.y-=top;}
     tickProgress();
+    {std::set<std::string> have;for(const auto& [path,bytes]:files)have.insert(tileKey(path));
+     tilePrefetch.start(archives.root(),act,result.levels,std::move(have));}
     return result;
+}
+size_t tileFileBytes() {return heldTileFileBytes;}
+size_t sharedTilePixelBytes() {
+    size_t n=0;
+    for(const auto& [key,weak]:sharedTiles)if(auto tile=weak.lock())n+=tile->image.storedBytes();
+    return n;
 }
 }

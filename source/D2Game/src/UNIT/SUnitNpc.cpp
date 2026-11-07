@@ -42,10 +42,13 @@
 #pragma warning(disable: 28159)
 
 
+//1.10f: D2Game.0x6FD4DC48
+//1.14d: 0x0088CAC4
 int32_t gnNpcGUID_6FD4DC48;
 
 //D2Game.0x6FCC67D0
-void __fastcall D2GAME_NPC_FirstFn_6FCC67D0(D2GameStrc* pGame, int32_t nVendorId, D2NpcRecordStrc* pNpcRecord)
+//1.14d: 0x00576070
+void __fastcall SUNITNPC_InitializeHirelingRoster(D2GameStrc* pGame, int32_t nVendorId, D2NpcRecordStrc* pNpcRecord)
 {
     if (pNpcRecord->npcTrade.bHireInit)
     {
@@ -107,6 +110,7 @@ void __fastcall D2GAME_NPC_FirstFn_6FCC67D0(D2GameStrc* pGame, int32_t nVendorId
 }
 
 //D2Game.0x6FCC6970
+//1.14d: 0x005761C0
 void __fastcall D2GAME_NPC_RepairItem_6FCC6970(D2GameStrc* pGame, D2UnitStrc* pItem, D2UnitStrc* pPlayer)
 {
     if (ITEMS_IsRepairable(pItem))
@@ -147,7 +151,8 @@ void __fastcall D2GAME_NPC_RepairItem_6FCC6970(D2GameStrc* pGame, D2UnitStrc* pI
 }
 
 //D2Game.0x6FCC6A60
-D2UnitStrc* __fastcall D2GAME_NPC_GenerateStoreItem_6FCC6A60(D2UnitStrc* pNpc, int32_t szCode, D2GameStrc* pGame, int32_t a4, int32_t nQuality, int32_t nItemLevel, int32_t nPlayerLevel)
+//1.14d: 0x00576330
+D2UnitStrc* __fastcall D2GAME_NPC_GenerateStoreItem_6FCC6A60(D2UnitStrc* pNpc, int32_t szCode, D2GameStrc* pGame, int32_t bVendorItem, int32_t nQuality, int32_t nItemLevel, int32_t nPlayerLevel)
 {
     D2_ASSERT(pGame);
     D2_ASSERT(pNpc);
@@ -276,7 +281,7 @@ D2UnitStrc* __fastcall D2GAME_NPC_GenerateStoreItem_6FCC6A60(D2UnitStrc* pNpc, i
 
     ITEMS_SetItemFlag(pItem, IFLAG_IDENTIFIED, 1);
 
-    if (a4)
+    if (bVendorItem)
     {
         pItem->dwFlagEx |= UNITFLAGEX_ISVENDORITEM;
 
@@ -286,27 +291,28 @@ D2UnitStrc* __fastcall D2GAME_NPC_GenerateStoreItem_6FCC6A60(D2UnitStrc* pNpc, i
         }
 
         UNITS_RefreshInventory(pNpc, 1);
-        INVENTORY_AddItemToTradeInventory(pNpc->pInventory, pItem);
+        INVENTORY_AddItemToCommandQueue(pNpc->pInventory, pItem);
     }
 
     return pItem;
 }
 
 //D2Game.0x6FCC6F10
-void __fastcall sub_6FCC6F10(D2UnitStrc* pNpc, D2UnitStrc* pItem, D2GameStrc* pGame, int32_t bInit)
+//1.14d: 0x005766D0
+void __fastcall SUNITNPC_RemoveStoreItem(D2UnitStrc* pNpc, D2UnitStrc* pItem, D2GameStrc* pGame, int32_t bInit)
 {
     D2_ASSERT(pGame);
     D2_ASSERT(pNpc);
     D2_ASSERT(pItem);
 
     int32_t nUnused = 0;
-    sub_6FC446B0(pGame, pNpc, pItem->dwUnitId, &nUnused, 0, 0, 0, 0);
+    ITEMMODE_RemoveStoredItem(pGame, pNpc, pItem->dwUnitId, &nUnused, 0, 0, 0, 0);
 
     if (bInit)
     {
         pItem->dwFlagEx |= UNITFLAGEX_ITEMINIT;
         UNITS_RefreshInventory(pNpc, 1);
-        INVENTORY_AddItemToTradeInventory(pNpc->pInventory, pItem);
+        INVENTORY_AddItemToCommandQueue(pNpc->pInventory, pItem);
         ITEMS_SetItemCMDFlag(pItem, 1, 1);
     }
     else
@@ -316,7 +322,8 @@ void __fastcall sub_6FCC6F10(D2UnitStrc* pNpc, D2UnitStrc* pItem, D2GameStrc* pG
 }
 
 //D2Game.0x6FCC6FF0
-void __fastcall D2GAME_NPC_BuildHirelingList_6FCC6FF0(D2GameStrc* pGame, D2ClientStrc* pClient, D2UnitStrc* pUnit, int32_t a4)
+//1.14d: 0x00576770
+void __fastcall D2GAME_NPC_BuildHirelingList_6FCC6FF0(D2GameStrc* pGame, D2ClientStrc* pClient, D2UnitStrc* pUnit, int32_t nUnusedArg)
 {
     if (!pUnit)
     {
@@ -345,7 +352,7 @@ void __fastcall D2GAME_NPC_BuildHirelingList_6FCC6FF0(D2GameStrc* pGame, D2Clien
 
     if (!pNpcRecord->npcTrade.bHireInit)
     {
-        D2GAME_NPC_FirstFn_6FCC67D0(CLIENTS_GetGame(pClient), pUnit->dwClassId, pNpcRecord);
+        SUNITNPC_InitializeHirelingRoster(CLIENTS_GetGame(pClient), pUnit->dwClassId, pNpcRecord);
     }
 
     D2HirelingTxt* pHirelingTxtRecord = DATATBLS_GetNextHirelingTxtRecordFromVendorIdAndDifficulty(pGame->bExpansion, pUnit->dwClassId, 0, 0);
@@ -368,6 +375,7 @@ void __fastcall D2GAME_NPC_BuildHirelingList_6FCC6FF0(D2GameStrc* pGame, D2Clien
 }
 
 //D2Game.0x6FCC7100
+//1.14d: 0x00576980
 void __fastcall D2GAME_NPC_FillStoreInventory_6FCC7100(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc, D2NpcTradeStrc* pTrade)
 {    
     D2SeedStrc* pSeed = SUNITPROXY_GetSeedFromNpcControl(pGame);
@@ -492,7 +500,8 @@ void __fastcall D2GAME_NPC_FillStoreInventory_6FCC7100(D2GameStrc* pGame, D2Unit
 }
 
 //D2Game.0x6FCC74F0
-void __fastcall D2GAME_STORES_CreateVendorCache_6FCC74F0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNPC, int32_t a4, int32_t a5)
+//1.14d: 0x00579430
+void __fastcall D2GAME_STORES_CreateVendorCache_6FCC74F0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNPC, int32_t bRefreshInventory, int32_t bGamble)
 {
     if (!pNPC)
     {
@@ -508,19 +517,19 @@ void __fastcall D2GAME_STORES_CreateVendorCache_6FCC74F0(D2GameStrc* pGame, D2Un
 
     pNpcRecord->bTrading = 1;
     pNpcRecord->npcTrade.dwNPCGUID = pNPC->dwUnitId;
-    D2GAME_STORES_CreateVendorCache_6FCCAE20(pGame, pPlayer, pNPC, a5);
+    D2GAME_STORES_CreateVendorCache_6FCCAE20(pGame, pPlayer, pNPC, bGamble);
 
     switch (pNPC->dwClassId)
     {
     case MONSTER_KASHYA:
     case MONSTER_GREIZ:
     case MONSTER_QUAL_KEHK:
-        break;
-    default:
         return;
+    default:
+        break;
     }
 
-    if (a4 && !a5 && pNpcRecord->npcTrade.bRefreshInventory)
+    if (bRefreshInventory && !bGamble && pNpcRecord->npcTrade.bRefreshInventory)
     {
         pNpcRecord->npcTrade.bRefreshInventory = 0;
         SUNITPROXY_AllocNpcInventory(pGame, pNpcRecord, pNPC);
@@ -530,7 +539,7 @@ void __fastcall D2GAME_STORES_CreateVendorCache_6FCC74F0(D2GameStrc* pGame, D2Un
 
     UNITS_RefreshInventory(pNPC, 1);
 
-    if (a5)
+    if (bGamble)
     {
         D2InventoryStrc* pGambleInventory = SUNITPROXY_GetGambleInventory(pGame, pPlayer, pNPC);
         if (pGambleInventory)
@@ -546,7 +555,7 @@ void __fastcall D2GAME_STORES_CreateVendorCache_6FCC74F0(D2GameStrc* pGame, D2Un
                         ITEMS_SetItemFlag(pItem, IFLAG_NEWITEM, 1);
                     }
 
-                    INVENTORY_AddItemToTradeInventory(pNPC->pInventory, pItem);
+                    INVENTORY_AddItemToCommandQueue(pNPC->pInventory, pItem);
                 }
             }
         }
@@ -564,14 +573,15 @@ void __fastcall D2GAME_STORES_CreateVendorCache_6FCC74F0(D2GameStrc* pGame, D2Un
                     ITEMS_SetItemFlag(pItem, IFLAG_NEWITEM, 1);
                 }
 
-                INVENTORY_AddItemToTradeInventory(pNPC->pInventory, pItem);
+                INVENTORY_AddItemToCommandQueue(pNPC->pInventory, pItem);
             }
         }
     }
 }
 
 //D2Game.0x6FCC7680
-int32_t __fastcall D2GAME_STORES_SellItem_6FCC7680(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nNpcGUID, int32_t nItemGUID, int16_t nItemMode, int32_t a6)
+//1.14d: 0x00579510
+int32_t __fastcall D2GAME_STORES_SellItem_6FCC7680(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nNpcGUID, int32_t nItemGUID, int16_t nItemMode, int32_t nUnusedArg)
 {
     D2_ASSERT(pGame);
 
@@ -713,7 +723,7 @@ int32_t __fastcall D2GAME_STORES_SellItem_6FCC7680(D2GameStrc* pGame, D2UnitStrc
 
                     UNITS_RefreshInventory(pNpc, 1);
 
-                    INVENTORY_AddItemToTradeInventory(pNpc->pInventory, pDupeItem);
+                    INVENTORY_AddItemToCommandQueue(pNpc->pInventory, pDupeItem);
                     STATLIST_SetUnitStat(pDupeItem, STAT_DURABILITY, STATLIST_GetMaxDurabilityFromUnit(pDupeItem), 0);
                     STATLIST_SetUnitStat(pDupeItem, STAT_QUANTITY, ITEMS_GetTotalMaxStack(pDupeItem), 0);
                 }
@@ -734,7 +744,7 @@ int32_t __fastcall D2GAME_STORES_SellItem_6FCC7680(D2GameStrc* pGame, D2UnitStrc
 
                         UNITS_RefreshInventory(pNpc, 1);
 
-                        INVENTORY_AddItemToTradeInventory(pNpc->pInventory, pDupeItem);
+                        INVENTORY_AddItemToCommandQueue(pNpc->pInventory, pDupeItem);
                         STATLIST_SetUnitStat(pDupeItem, STAT_DURABILITY, STATLIST_GetMaxDurabilityFromUnit(pDupeItem), 0);
                         STATLIST_SetUnitStat(pDupeItem, STAT_QUANTITY, ITEMS_GetTotalMaxStack(pDupeItem), 0);
                     }
@@ -822,7 +832,7 @@ int32_t __fastcall D2GAME_STORES_SellItem_6FCC7680(D2GameStrc* pGame, D2UnitStrc
                             nUnitType = pPlayer->dwUnitType;
                         }
 
-                        D2GAME_PACKETS_SendPacket0x22_6FC3DBE0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), nUnitType, nUnitGUID, pBooksTxtRecord->dwScrollSkillId, nSkillQuantity);
+                        D2GAME_PACKETS_SendPacket0x22_6FC3DBE0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), nUnitType, nUnitGUID, pBooksTxtRecord->dwBookSkillId, nSkillQuantity);
                     }
                 }
             }
@@ -842,7 +852,7 @@ int32_t __fastcall D2GAME_STORES_SellItem_6FCC7680(D2GameStrc* pGame, D2UnitStrc
     }
     else
     {
-        sub_6FC45B30(pGame, pPlayer, ITEMS_GetBodyLocation(pItem), 1, &nUnused);
+        ITEMMODE_UnequipBodyItem(pGame, pPlayer, ITEMS_GetBodyLocation(pItem), 1, &nUnused);
     }
 
     ITEMS_HandleGoldTransaction(pGame, pPlayer, nTransactionCost);
@@ -851,18 +861,19 @@ int32_t __fastcall D2GAME_STORES_SellItem_6FCC7680(D2GameStrc* pGame, D2UnitStrc
 }
 
 //D2Game.0x6FCC7E20
-void __fastcall sub_6FCC7E20(D2GameStrc* pGame, D2UnitStrc* pNpc, D2UnitStrc* pItem, D2UnitStrc* pUnit, int32_t a5)
+//1.14d: 0x00576F50
+void __fastcall SUNITNPC_RemovePurchasedItemFromStore(D2GameStrc* pGame, D2UnitStrc* pNpc, D2UnitStrc* pItem, D2UnitStrc* pPlayer, int32_t nTransactionType)
 {
     int32_t nUnused = 0;
     D2NpcRecordStrc* pNpcRecord = SUNITPROXY_GetNpcRecordFromUnit(pGame, pNpc, &nUnused);
 
-    if (pNpcRecord->bGambleInit && a5 == 2)
+    if (pNpcRecord->bGambleInit && nTransactionType == 2)
     {
         D2NpcGambleStrc* pNpcGamble = pNpcRecord->pGamble;
-        const int32_t nUnitGUID = pUnit ? pUnit->dwUnitId : -1;
+        const int32_t nPlayerGUID = pPlayer ? pPlayer->dwUnitId : -1;
         while (pNpcGamble)
         {
-            if (pNpcGamble->dwGUID == nUnitGUID)
+            if (pNpcGamble->dwPlayerGUID == nPlayerGUID)
             {
                 break;
             }
@@ -878,15 +889,15 @@ void __fastcall sub_6FCC7E20(D2GameStrc* pGame, D2UnitStrc* pNpc, D2UnitStrc* pI
                 {
                     if (pItem && pNpc)
                     {
-                        D2InventoryStrc* pGambleInventory = SUNITPROXY_GetGambleInventory(pGame, pUnit, pNpc);
+                        D2InventoryStrc* pGambleInventory = SUNITPROXY_GetGambleInventory(pGame, pPlayer, pNpc);
                         if (pGambleInventory)
                         {
-                            sub_6FC446B0(pGame, pNpc, pItem->dwUnitId, &nUnused, 0, 0, pGambleInventory, 0);
+                            ITEMMODE_RemoveStoredItem(pGame, pNpc, pItem->dwUnitId, &nUnused, 0, 0, pGambleInventory, 0);
 
                             pItem->dwFlagEx |= 0x10u;
 
                             UNITS_RefreshInventory(pNpc, 1);
-                            INVENTORY_AddItemToTradeInventory(pGambleInventory, pItem);
+                            INVENTORY_AddItemToCommandQueue(pGambleInventory, pItem);
                             ITEMS_SetItemCMDFlag(pItem, 1, 1);
                         }
                         else
@@ -919,12 +930,13 @@ void __fastcall sub_6FCC7E20(D2GameStrc* pGame, D2UnitStrc* pNpc, D2UnitStrc* pI
         }
     }
 
-    sub_6FCC6F10(pNpc, pItem, pGame, 1);
+    SUNITNPC_RemoveStoreItem(pNpc, pItem, pGame, 1);
     return;
 }
 
 //D2Game.0x6FCC7FA0
-void __fastcall sub_6FCC7FA0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc, uint16_t wName)
+//1.14d: 0x005770E0
+void __fastcall SUNITNPC_HireMercenaryFromRoster(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc, uint16_t wName)
 {
     int32_t nLevel = STATLIST_UnitGetStatValue(pPlayer, STAT_LEVEL, 0);
     if (pGame->nDifficulty == DIFFMODE_NORMAL)
@@ -1008,10 +1020,10 @@ void __fastcall sub_6FCC7FA0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc*
         PLRTRADE_AddGold(pPlayer, STAT_GOLD, -hirelingInit.nGold);
     }
 
-    D2UnitStrc* pMerc = sub_6FC68D70(pGame, pNpc, pHirelingTxtRecord->dwClass, 1, 4, 0);
+    D2UnitStrc* pMerc = MONSTERSPAWN_SpawnAtUnit(pGame, pNpc, pHirelingTxtRecord->dwClass, 1, 4, 0);
     if (!pMerc)
     {
-        pMerc = sub_6FC68D70(pGame, pPlayer, pHirelingTxtRecord->dwClass, 1, 4, 0);
+        pMerc = MONSTERSPAWN_SpawnAtUnit(pGame, pPlayer, pHirelingTxtRecord->dwClass, 1, 4, 0);
         if (!pMerc)
         {
             return D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 15, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
@@ -1020,7 +1032,7 @@ void __fastcall sub_6FCC7FA0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc*
 
     pMercDataRecord->bHired = 1;
 
-    sub_6FC61270(pGame, pPlayer, pMerc, -1, pMercDataRecord, 0);
+    MONSTERAI_AssignHireling(pGame, pPlayer, pMerc, -1, pMercDataRecord, 0);
 
     D2MonsterInteractStrc* pMonInteract = nullptr;
     if (pNpc && pNpc->dwUnitType == UNIT_MONSTER && pNpc->pMonsterData)
@@ -1047,31 +1059,33 @@ void __fastcall sub_6FCC7FA0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc*
     pNpcRecord->npcTrade.bHireInit = 0;
     pNpcRecord->pMercData = nullptr;
 
-    D2GAME_NPC_FirstFn_6FCC67D0(pGame, nVendorId, pNpcRecord);
+    SUNITNPC_InitializeHirelingRoster(pGame, nVendorId, pNpcRecord);
 }
 
 //D2Game.0x6FCC8430
-void __fastcall sub_6FCC8430(D2GameStrc* pGame, D2UnitStrc* pUnit)
+//1.14d: 0x005773D0
+void __fastcall SUNITNPC_UpdateHirelingPosition(D2GameStrc* pGame, D2UnitStrc* pUnit)
 {
-    if (sub_6FC7E8B0(pGame, pUnit, 7, 0))
+    if (PLAYERPETS_GetFirstPetByType(pGame, pUnit, 7, 0))
     {
-        sub_6FC7E310(pGame, pUnit, CLIENTS_GetUnitX(pUnit), CLIENTS_GetUnitY(pUnit));
+        PLAYERPETS_UpdatePetsForOwnerMove(pGame, pUnit, CLIENTS_GetUnitX(pUnit), CLIENTS_GetUnitY(pUnit));
     }
 }
 
 //D2Game.0x6FCC84D0
-void __fastcall sub_6FCC84D0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pPet)
+//1.14d: 0x00579AA0
+void __fastcall SUNITNPC_ResurrectHireling(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pPet)
 {
     if (!pPet || !pPlayer)
     {
         return;
     }
 
-    D2UnitStrc* pHireling = sub_6FC7E8B0(pGame, pPlayer, 7, 0);
+    D2UnitStrc* pHireling = PLAYERPETS_GetFirstPetByType(pGame, pPlayer, 7, 0);
     if (pHireling)
     {
         AIGENERAL_SetOwnerData(pGame, pHireling, -1u, UNIT_MONSTER, 0, 0);
-        sub_6FC7D260(pGame, pPlayer, pHireling->dwUnitId, 0);
+        PLAYERPETS_RemovePet(pGame, pPlayer, pHireling->dwUnitId, 0);
         DUNGEON_AllocDrlgDelete(UNITS_GetRoom(pHireling), UNIT_MONSTER, pHireling->dwUnitId);
         SUNIT_RemoveUnit(pGame, pHireling);
     }
@@ -1079,7 +1093,7 @@ void __fastcall sub_6FCC84D0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc*
     UNITS_ChangeAnimMode(pPet, MONMODE_NEUTRAL);
     STATLIST_SetUnitStat(pPet, STAT_HITPOINTS, STATLIST_GetMaxLifeFromUnit(pPet), 0);
 
-    sub_6FC7DD90(pGame, pPlayer, pPet);
+    PLAYERPETS_MarkPetAlive(pGame, pPlayer, pPet);
     D2GAME_UpdateSummonAI_6FC401F0(pGame, pPet, 0, pPlayer->dwNodeIndex);
     STATES_ToggleState(pPet, STATE_FREEZE, 0);
     STATES_ToggleState(pPet, STATE_SHATTER, 0);
@@ -1088,11 +1102,12 @@ void __fastcall sub_6FCC84D0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc*
     pPet->dwFlags |= UNITFLAG_NOXP | UNITFLAG_NOTC | UNITFLAG_ISVALIDTARGET | UNITFLAG_CANBEATTACKED | UNITFLAG_TARGETABLE;
     pPet->dwFlagEx &= 0xFFFBFFFF;
 
-    sub_6FC7E310(pGame, pPlayer, CLIENTS_GetUnitX(pPlayer), CLIENTS_GetUnitY(pPlayer));
+    PLAYERPETS_UpdatePetsForOwnerMove(pGame, pPlayer, CLIENTS_GetUnitX(pPlayer), CLIENTS_GetUnitY(pPlayer));
     MONSTERAI_SendMercStats(pGame, pPlayer, 0);
 }
 
 //D2Game.0x6FCC8630
+//1.14d: 0x005774F0
 D2UnitStrc* __fastcall D2GAME_MERCS_Create_6FCC8630(D2GameStrc* pGame, D2UnitStrc* pPlayer, uint16_t wName, uint32_t nSeed, int16_t wVersion, int32_t nBaseMonster, int32_t bDead)
 {
     uint8_t nAct = pPlayer->nAct;
@@ -1150,18 +1165,19 @@ D2UnitStrc* __fastcall D2GAME_MERCS_Create_6FCC8630(D2GameStrc* pGame, D2UnitStr
         D2MercDataStrc mercData = {};
         mercData.dwSeed = nSeed;
         mercData.nMercName = nMercName;
-        sub_6FC61270(pGame, pPlayer, pMerc, wVersion, &mercData, bDead);
+        MONSTERAI_AssignHireling(pGame, pPlayer, pMerc, wVersion, &mercData, bDead);
     }
 
     return pMerc;
 }
 
 //D2Game.0x6FCC87C0
-D2UnitStrc* __fastcall sub_6FCC87C0(D2GameStrc* pPlayer, D2UnitStrc* pUnit, D2UnitStrc* pItem, int32_t* a4)
+//1.14d: 0x00577700
+D2UnitStrc* __fastcall SUNITNPC_FindStackForStorePurchase(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pItem, int32_t* pFreeStackCount)
 {
-    *a4 = 1;
+    *pFreeStackCount = 1;
 
-    if (!pUnit->pInventory || !ITEMS_CheckIfStackable(pItem) || !ITEMS_GetAutoStack(pItem))
+    if (!pPlayer->pInventory || !ITEMS_CheckIfStackable(pItem) || !ITEMS_GetAutoStack(pItem))
     {
         return nullptr;
     }
@@ -1170,7 +1186,7 @@ D2UnitStrc* __fastcall sub_6FCC87C0(D2GameStrc* pPlayer, D2UnitStrc* pUnit, D2Un
     int32_t nMaxStack = ITEMS_GetTotalMaxStack(pItem);
     while (1)
     {
-        pStackItem = INVENTORY_FindEquippedItemForStack(pUnit->pInventory, pItem, pStackItem);
+        pStackItem = INVENTORY_FindEquippedItemForStack(pPlayer->pInventory, pItem, pStackItem);
         if (!pStackItem)
         {
             break;
@@ -1182,7 +1198,7 @@ D2UnitStrc* __fastcall sub_6FCC87C0(D2GameStrc* pPlayer, D2UnitStrc* pUnit, D2Un
             nMaxStack = ITEMS_GetTotalMaxStack(pStackItem);
             if (nQuantity < nMaxStack)
             {
-                *a4 = nMaxStack - nQuantity;
+                *pFreeStackCount = nMaxStack - nQuantity;
                 return pStackItem;
             }
         }
@@ -1193,10 +1209,10 @@ D2UnitStrc* __fastcall sub_6FCC87C0(D2GameStrc* pPlayer, D2UnitStrc* pUnit, D2Un
     {
         do
         {
-            pStackItem = INVENTORY_FindBackPackItemForStack(pUnit->pInventory, pItem, pStackItem);
+            pStackItem = INVENTORY_FindBackPackItemForStack(pPlayer->pInventory, pItem, pStackItem);
             if (!pStackItem)
             {
-                *a4 = nMaxStack;
+                *pFreeStackCount = nMaxStack;
                 return nullptr;
             }
         }
@@ -1207,330 +1223,342 @@ D2UnitStrc* __fastcall sub_6FCC87C0(D2GameStrc* pPlayer, D2UnitStrc* pUnit, D2Un
     }
     while (nQuantity >= nMaxStack);
 
-    *a4 = nMaxStack - nQuantity;
+    *pFreeStackCount = nMaxStack - nQuantity;
     return pStackItem;
 }
 
-// Class ids of the bolt and arrow quivers, set up with the NPC control data (SUnitProxy.cpp).
-extern int32_t dword_6FD4DD80;
-extern int32_t dword_6FD4DD84;
-static_assert(ITEMTYPE_SCROLL == 22 && IMODE_ONCURSOR == 4, "the buy code is written against the original item type and mode numbers");
+extern int32_t gnCrossbowQuiverItemId; // SUnitProxy.cpp
+extern int32_t gnArrowQuiverItemId;
+//D2Game.0x6FCC88B0) --------------------------------------------------------
 
-//D2Game.0x6FCC88B0
-// A player buys an item from an NPC store (or a gamble offer): the price is charged, the item is copied from the store
-// and lands in the belt, the quiver/equipment or the inventory. Written from the 1.10f disassembly. Result packets 0x2A:
-// 0 success, 7 unknown item/npc, 9 no copy possible, 10 no room, 12 not enough gold.
-int32_t __fastcall sub_6FCC88B0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc, int32_t nItemGUID, int32_t nItemMode, uint16_t nTransactionType, int32_t nCost, int32_t bMultibuy)
+//1.14d: Game.0x576D90 (inlined in 1.10f)
+// Takes nCost from the player's gold and the rest from the stash; 0 when the player cannot pay.
+static int32_t SUNITNPC_PayItemCost(D2UnitStrc* pPlayer, int32_t nCost)
 {
-    D2_MAYBE_UNUSED(nItemMode);
-    D2_MAYBE_UNUSED(nCost); // the price is worked out here again, the price the client sends is not used
-
-    D2_ASSERT(pGame);
-
-    auto sendResult = [&](int32_t nResult, int32_t nItemId, int32_t nParam)
+    const int32_t nGold = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0);
+    if (nGold + STATLIST_UnitGetStatValue(pPlayer, STAT_GOLDBANK, 0) < nCost)
     {
-        D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, (char)nResult, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), nItemId, (char)nParam);
-    };
-    auto totalGold = [&]()
-    {
-        return STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0) + STATLIST_UnitGetStatValue(pPlayer, STAT_GOLDBANK, 0);
-    };
-    // Gold first, then the stash.
-    auto charge = [&](int32_t nAmount)
-    {
-        const int32_t nGold = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0);
-        if (nAmount > nGold)
-        {
-            PLRTRADE_AddGold(pPlayer, STAT_GOLD, -nGold);
-            PLRTRADE_AddGold(pPlayer, STAT_GOLDBANK, nGold - nAmount);
-        }
-        else
-        {
-            PLRTRADE_AddGold(pPlayer, STAT_GOLD, -nAmount);
-        }
-    };
-
-    D2UnitStrc* pShopItem = SUNIT_GetServerUnit(pGame, UNIT_ITEM, nItemGUID);
-    if (!pShopItem)
-    {
-        sendResult(7, nItemGUID, 0);
-        return 1;
-    }
-
-    const int32_t nTab = nTransactionType;
-    if (nTab == 0)
-    {
-        if (!ITEMS_IsInPlayersInventory(pNpc, pShopItem, nullptr))
-        {
-            sendResult(7, nItemGUID, 0);
-            return 1;
-        }
-    }
-    else if (nTab == 2)
-    {
-        D2InventoryStrc* pGambleInventory = SUNITPROXY_GetGambleInventory(pGame, pPlayer, pNpc);
-        if (!pGambleInventory || ITEMS_IsInPlayersInventory(pNpc, pShopItem, pGambleInventory) != 1)
-        {
-            sendResult(7, nItemGUID, 0);
-            return 1;
-        }
-    }
-
-    const int32_t nVendorId = pNpc ? pNpc->dwClassId : -1;
-    const int32_t nDifficulty = pGame->nDifficulty;
-    D2PlayerDataStrc* pPlayerData = UNITS_GetPlayerData(pPlayer);
-    int32_t nPrice = ITEMS_GetTransactionCost(pPlayer, pShopItem, (D2C_Difficulties)nDifficulty, pPlayerData->pQuestData[nDifficulty], nVendorId, (D2C_TransactionTypes)nTab);
-    const int32_t nGoldAndBank = totalGold();
-    if (nPrice > nGoldAndBank)
-    {
-        sendResult(12, -1, 0);
         return 0;
     }
 
-    D2InventoryStrc* pInventory = pPlayer->pInventory;
-    if (INVENTORY_GetCursorItem(pInventory))
+    if (nCost > nGold)
     {
-        sendResult(7, -1, 0);
-        return 1;
-    }
-
-    // Buying several at once is only offered for the items the NPC always stocks, and the top potions in nightmare and hell.
-    int32_t bMulti = bMultibuy;
-    int32_t nUnused = 0;
-    D2NpcRecordStrc* pNpcRecord = SUNITPROXY_GetNpcRecordFromUnit(pGame, pNpc, &nUnused);
-    if (!pNpcRecord)
-    {
-        bMulti = 0;
+        PLRTRADE_AddGold(pPlayer, STAT_GOLD, -nGold);
+        PLRTRADE_AddGold(pPlayer, STAT_GOLDBANK, nGold - nCost);
     }
     else
     {
-        const uint32_t nBaseCode = ITEMS_GetBaseCode(pShopItem);
-        bool bAllowed = false;
-        if (nDifficulty && (nBaseCode == ' 4ph' || nBaseCode == ' 5ph' || nBaseCode == ' 4pm' || nBaseCode == ' 5pm'))
+        PLRTRADE_AddGold(pPlayer, STAT_GOLD, -nCost);
+    }
+    return 1;
+}
+
+// Buy an item from a vendor, checked against 1.10f D2Game.0x6FCC88B0 and 1.14d Game.0x577830
+// (variable names of the old decompilation in brackets): the store tab / transaction type is
+// nTransactionType [v69]; nItemMode and the client's nCost are not used, every price is the
+// server's ITEMS_GetTransactionCost.
+//1.14d: 0x00577830
+int32_t __fastcall SUNITNPC_BuyItem(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc, int32_t nItemGUID, int32_t nItemMode, uint16_t nTransactionType, int32_t nCost, int32_t bMultibuy)
+{
+    D2_ASSERT(pGame);
+    D2_MAYBE_UNUSED(nItemMode);
+    D2_MAYBE_UNUSED(nCost);
+
+
+    const int32_t nTab = nTransactionType;
+    D2UnitStrc* pStoreItem = SUNIT_GetServerUnit(pGame, UNIT_ITEM, nItemGUID); // [v10, v72]
+    D2InventoryStrc* pInventory = nullptr;
+    D2UnitStrc* pNewItem = nullptr;
+    int32_t nItemCost = 0, nAvailable = 0, nQuantity = 0, nNewClass = 0, nResult = 0;
+    int32_t bBought = 0, nGoldBefore = 0, nBankBefore = 0, bEquip = 1;
+    D2UnitStrc* pWeapon = nullptr;
+    int32_t nWeaponClass = 0;
+
+    if (!pStoreItem)
+    {
+        D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 7, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), nItemGUID, 0);
+        return 1;
+    }
+
+    if (nTab)
+    {
+        if (nTab == 2)
         {
-            bAllowed = true;
+            D2InventoryStrc* pGambleInventory = SUNITPROXY_GetGambleInventory(pGame, pPlayer, pNpc);
+            if (!pGambleInventory || ITEMS_IsInPlayersInventory(pNpc, pStoreItem, pGambleInventory) != 1)
+            {
+                D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 7, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), nItemGUID, 0);
+                return 1;
+            }
+        }
+    }
+    else if (!ITEMS_IsInPlayersInventory(pNpc, pStoreItem, nullptr))
+    {
+        D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 7, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), nItemGUID, 0);
+        return 1;
+    }
+
+    const int32_t nVendorId = pNpc ? pNpc->dwClassId : -1; // [v78]
+    D2BitBufferStrc* pQuestFlags = UNITS_GetPlayerData(pPlayer)->pQuestData[pGame->nDifficulty];
+    nItemCost = ITEMS_GetTransactionCost(pPlayer, pStoreItem, (D2C_Difficulties)pGame->nDifficulty, pQuestFlags, nVendorId, (D2C_TransactionTypes)nTab); // [v86]
+    nAvailable = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0) + STATLIST_UnitGetStatValue(pPlayer, STAT_GOLDBANK, 0); // [v70]
+    if (nItemCost > nAvailable)
+    {
+        D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 12, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
+        return 0;
+    }
+
+    pInventory = pPlayer->pInventory; // [v71]
+    if (INVENTORY_GetCursorItem(pInventory))
+    {
+        D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 7, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
+        return 1;
+    }
+
+    // Buying many at once only works for items the vendor always has (and the bigger potions above Normal).
+    {
+        int32_t nIndex = 0;
+        D2NpcRecordStrc* pNpcRecord = SUNITPROXY_GetNpcRecordFromUnit(pGame, pNpc, &nIndex); // [v15]
+        if (!pNpcRecord)
+        {
+            bMultibuy = 0;
         }
         else
         {
-            for (int32_t i = 0; i < pNpcRecord->npcTrade.pProxy.nPerms; ++i)
+            const uint32_t dwCode = ITEMS_GetBaseCode(pStoreItem); // [v79]
+            if (!(pGame->nDifficulty && (dwCode == ' 4ph' || dwCode == ' 5ph' || dwCode == ' 4pm' || dwCode == ' 5pm')))
             {
-                if (pNpcRecord->npcTrade.pProxy.pPermCache[i] == nBaseCode)
+                int32_t bPermanent = 0;
+                for (int32_t i = 0; i < pNpcRecord->npcTrade.pProxy.nPerms; ++i)
                 {
-                    bAllowed = true;
-                    break;
+                    if (pNpcRecord->npcTrade.pProxy.pPermCache[i] == dwCode)
+                    {
+                        bPermanent = 1;
+                        break;
+                    }
+                }
+                if (!bPermanent)
+                {
+                    bMultibuy = 0;
                 }
             }
-        }
-
-        if (!bAllowed)
-        {
-            bMulti = 0;
         }
     }
 
-    // Scrolls go straight into the tome.
-    if (ITEMS_CheckItemTypeId(pShopItem, ITEMTYPE_SCROLL))
+    // Scrolls go into a tome when there is one with room.
+    if (ITEMS_CheckItemTypeId(pStoreItem, ITEMTYPE_SCROLL))
     {
-        int32_t nCapacity = 0;
-        D2UnitStrc* pTome = sub_6FC4B430(pGame, pPlayer, pShopItem, &nCapacity);
-        if (pTome)
+        int32_t nRoom = 0; // [v68]
+        D2UnitStrc* pBook = ITEMMODE_FindMatchingBookWithSpace(pGame, pPlayer, pStoreItem, &nRoom); // [v66]
+        if (pBook)
         {
-            int32_t nCount = 1;
-            if (bMulti)
+            int32_t nCount = 1; // [v80]
+            if (bMultibuy)
             {
-                nCount = nPrice > 0 ? (int32_t)((uint32_t)nGoldAndBank / (uint32_t)nPrice) : nCapacity;
-                if (nCount > nCapacity)
+                nCount = (uint32_t)nAvailable / (uint32_t)nItemCost;
+                if (nCount > nRoom)
                 {
-                    nCount = nCapacity;
+                    nCount = nRoom;
                 }
             }
 
-            const int32_t nTotal = nCount * nPrice;
-            if (totalGold() < nTotal)
+            if (!SUNITNPC_PayItemCost(pPlayer, nItemCost * nCount))
             {
-                sendResult(12, -1, 0);
+                D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 12, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
                 return 0;
             }
 
-            charge(nTotal);
-            sub_6FC4B520(pGame, pPlayer, pTome, nCount);
-            sub_6FCC7E20(pGame, pNpc, pShopItem, pPlayer, nTab);
-            sendResult(0, pTome->dwUnitId, 5);
+            ITEMMODE_AddBookQuantity(pGame, pPlayer, pBook, nCount);
+            SUNITNPC_RemovePurchasedItemFromStore(pGame, pNpc, pStoreItem, pPlayer, nTab);
+            D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 0, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), pBook->dwUnitId, 5);
             return 0;
         }
     }
 
-    int32_t nQuantity = STATLIST_UnitGetStatValue(pShopItem, STAT_QUANTITY, 0);
-    if (bMulti && ITEMS_GetAutoStack(pShopItem))
+    nQuantity = STATLIST_UnitGetStatValue(pStoreItem, STAT_QUANTITY, 0); // [v67]
+    if (bMultibuy && ITEMS_GetAutoStack(pStoreItem))
     {
-        // Ammunition: as many as the gold and the room in the stack allow.
-        STATLIST_SetUnitStat(pShopItem, STAT_QUANTITY, 1, 0);
-        const int32_t nUnitPrice = ITEMS_GetTransactionCost(pPlayer, pShopItem, (D2C_Difficulties)nDifficulty, pPlayerData->pQuestData[nDifficulty], nVendorId, (D2C_TransactionTypes)0);
-        STATLIST_SetUnitStat(pShopItem, STAT_QUANTITY, nQuantity, 0);
+        const int32_t nOldQuantity = STATLIST_UnitGetStatValue(pStoreItem, STAT_QUANTITY, 0);
+        STATLIST_SetUnitStat(pStoreItem, STAT_QUANTITY, 1, 0);
+        const uint32_t nUnitCost = ITEMS_GetTransactionCost(pPlayer, pStoreItem, (D2C_Difficulties)pGame->nDifficulty, pQuestFlags, nVendorId, (D2C_TransactionTypes)0); // [v27, v87]
+        STATLIST_SetUnitStat(pStoreItem, STAT_QUANTITY, nOldQuantity, 0);
 
-        const int32_t nAffordable = nUnitPrice > 0 ? (int32_t)((uint32_t)nGoldAndBank / (uint32_t)nUnitPrice) : 0;
-        int32_t nRoom = 0;
-        D2UnitStrc* pStack = sub_6FCC87C0(pGame, pPlayer, pShopItem, &nRoom);
-        const int32_t nBuy = std::min(nRoom, nAffordable);
-        if (pStack)
+        const int32_t nAffordable = (uint32_t)nAvailable / nUnitCost; // [v82]
+        int32_t nStackRoom = 0; // [v70 reused]
+        D2UnitStrc* pStack = SUNITNPC_FindStackForStorePurchase(pGame, pPlayer, pStoreItem, &nStackRoom); // [v28]
+        const int32_t nCount = nStackRoom >= nAffordable ? nAffordable : nStackRoom;
+        if (!pStack)
         {
-            if (nBuy <= 0)
+            nQuantity = nCount <= 1 ? 1 : nCount;
+            nItemCost = nUnitCost * nQuantity;
+            goto BUY_NEW_ITEM;
+        }
+
+        // Top up the stack the player already has.
+        if (nCount > 0)
+        {
+            if (!SUNITNPC_PayItemCost(pPlayer, nUnitCost * nCount))
             {
-                sendResult(12, -1, 0);
+                D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 12, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
                 return 0;
             }
 
-            const int32_t nTotal = nUnitPrice * nBuy;
-            if (totalGold() < nTotal)
-            {
-                sendResult(12, -1, 0);
-                return 0;
-            }
-
-            charge(nTotal);
-            sub_6FCC7E20(pGame, pNpc, pShopItem, pPlayer, nTab);
-            STATLIST_AddUnitStat(pStack, STAT_QUANTITY, nBuy, 0);
+            SUNITNPC_RemovePurchasedItemFromStore(pGame, pNpc, pStoreItem, pPlayer, nTab);
+            STATLIST_AddUnitStat(pStack, STAT_QUANTITY, nCount, 0);
             D2GAME_PACKETS_SendPacket0x3E_6FC3EC20(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), pStack, 1, STAT_QUANTITY, STATLIST_UnitGetStatValue(pStack, STAT_QUANTITY, 0), 0);
-            sendResult(0, pStack->dwUnitId, 5);
+            D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 0, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), pStack->dwUnitId, 5);
             return 0;
         }
 
-        nQuantity = std::max(nBuy, 1);
-        nPrice = nUnitPrice * nQuantity;
+        D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 12, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
+        return 0;
     }
 
-    int32_t nPlaced = 0;
-    int32_t bBought = 0;
-    if (!ITEMS_CheckIfAutoBeltable(pInventory, pShopItem))
+BUY_NEW_ITEM: // [LABEL_71]
+    nResult = 0; // [v84]
+    bBought = 0; // [v70 reused]
+    if (!ITEMS_CheckIfAutoBeltable(pInventory, pStoreItem))
     {
-        bMulti = 0;
+        bMultibuy = 0;
     }
 
-    // Each round buys one copy; only potions that go into the belt repeat (multibuy) until the belt is full.
-    while (true)
+    while (1)
     {
-        if (bBought && !bMulti)
+        if (bBought && !bMultibuy)
         {
             return 0;
         }
 
-        const int32_t nGoldBefore = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0);
-        const int32_t nBankBefore = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLDBANK, 0);
-        D2UnitStrc* pNewItem = ITEMS_Duplicate(pGame, pShopItem, pNpc, 1);
+        nGoldBefore = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0); // [v73]
+        nBankBefore = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLDBANK, 0); // [v74]
+        pNewItem = ITEMS_Duplicate(pGame, pStoreItem, pNpc, 1); // [v36]
         if (!pNewItem)
         {
-            sendResult(9, -1, 0);
+            D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 9, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
             return 1;
         }
 
-        if (bMulti && ITEMS_CheckIfStackable(pNewItem) && nQuantity)
+        if (bMultibuy && ITEMS_CheckIfStackable(pNewItem) && nQuantity)
         {
             STATLIST_SetUnitStat(pNewItem, STAT_QUANTITY, nQuantity, 0);
         }
 
-        if (totalGold() < nPrice)
+        if (!SUNITNPC_PayItemCost(pPlayer, nItemCost))
         {
-            sendResult(12, -1, 0);
+            D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 12, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
             return 0;
         }
 
-        charge(nPrice);
         UNITS_GetPlayerData(pPlayer)->dwBoughtItemId = pNewItem->dwUnitId;
         UNITS_ChangeAnimMode(pNewItem, IMODE_ONCURSOR);
-        const int32_t nNewClassId = pNewItem->dwClassId;
-
+        nNewClass = pNewItem->dwClassId; // [v68]
         if (ITEMS_CheckIfAutoBeltable(pInventory, pNewItem))
         {
-            int32_t nBeltSlot = 0;
-            nPlaced = sub_6FC48940(pGame, pPlayer, pNewItem->dwUnitId, 0, 1, &nBeltSlot);
-            if (!nPlaced)
+            int32_t nUnused = 0;
+            nResult = ITEMMODE_PlaceCursorItemInBelt(pGame, pPlayer, pNewItem->dwUnitId, 0, 1, &nUnused);
+            if (nResult)
             {
-                bMulti = 0;
+                goto ITEM_PLACED;
             }
+            bMultibuy = 0;
         }
 
-        if (!nPlaced)
+        if (!nResult)
         {
-            // Not for the belt: try to wear it (ammunition only when a matching weapon is held), else find room in the inventory.
-            bool bTryEquip = true;
-            D2UnitStrc* pLeftWeapon = INVENTORY_GetLeftHandWeapon(pInventory);
-            const int32_t nWeaponClass = UNITS_GetWeaponClass(pPlayer);
-            if (nNewClassId == dword_6FD4DD80 && pLeftWeapon && nWeaponClass != 7)
-            {
-                bTryEquip = false;
-            }
-
-            bool bQuiverCheck = false; // continue with the "no weapon" rules
-            if (nNewClassId == dword_6FD4DD84)
-            {
-                if (!pLeftWeapon)
-                {
-                    bQuiverCheck = true;
-                }
-                else if (nWeaponClass != 1)
-                {
-                    bTryEquip = false;
-                }
-            }
-
-            bool bPlaceInInventory = false;
-            if (!bQuiverCheck && pLeftWeapon)
-            {
-                bPlaceInInventory = ITEMS_CheckItemTypeId(pNewItem, 45) != 0;
-            }
-            else
-            {
-                bPlaceInInventory = nNewClassId == dword_6FD4DD80 || nNewClassId == dword_6FD4DD84;
-            }
-
-            // As 1.10f (0x6FCC9047..0x6FCC9056): worn at once when its place on the body is free, whatever the client asked.
-            if (!bPlaceInInventory && bTryEquip)
-            {
-                nPlaced = sub_6FC4A9B0(pGame, pPlayer, pNewItem, 0);
-            }
-
-            if (!nPlaced)
-            {
-                if (!bBought)
-                {
-                    ITEMS_SetInvPage(pNewItem, 0);
-                    nPlaced = D2GAME_PlaceItem_6FC44410(__FILE__, __LINE__, pGame, pPlayer, pNewItem->dwUnitId, 0, 0, 1, 1, 0);
-                }
-
-                if (!nPlaced)
-                {
-                    // No room: give the gold back and drop the copy.
-                    const int32_t nGoldNow = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0);
-                    if (nGoldBefore != nGoldNow)
-                    {
-                        PLRTRADE_AddGold(pPlayer, STAT_GOLD, nGoldBefore - nGoldNow);
-                    }
-
-                    const int32_t nBankNow = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLDBANK, 0);
-                    if (nBankBefore != nBankNow)
-                    {
-                        PLRTRADE_AddGold(pPlayer, STAT_GOLDBANK, nBankBefore - nBankNow);
-                    }
-
-                    ITEMS_RemoveFromAllPlayers(pGame, pNewItem);
-                    if (!bBought)
-                    {
-                        sendResult(10, -1, 0);
-                    }
-
-                    return 0;
-                }
-            }
+            break;
         }
 
-        sub_6FCC7E20(pGame, pNpc, pShopItem, pPlayer, nTab);
+ITEM_PLACED: // [LABEL_117]
+        SUNITNPC_RemovePurchasedItemFromStore(pGame, pNpc, pStoreItem, pPlayer, nTab);
         ITEMS_SetItemFlag(pNewItem, IFLAG_TARGET, 1);
-        sendResult(0, pNewItem->dwUnitId, 4);
+        D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 0, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), pNewItem->dwUnitId, 4);
         bBought = 1;
     }
+
+    // Not put in the belt: equip it if it fits (quivers only with the matching weapon), else into the inventory.
+    bEquip = 1; // [v85]
+    pWeapon = INVENTORY_GetLeftHandWeapon(pInventory); // [v44]
+    nWeaponClass = UNITS_GetWeaponClass(pPlayer); // [v45]
+    if (nNewClass == gnCrossbowQuiverItemId && pWeapon && nWeaponClass != 7)
+    {
+        bEquip = 0;
+    }
+
+    if (nNewClass == gnArrowQuiverItemId)
+    {
+        if (!pWeapon)
+        {
+            goto CHECK_QUIVER; // [LABEL_111]
+        }
+        if (nWeaponClass != 1)
+        {
+            bEquip = 0;
+        }
+    }
+
+    if (pWeapon)
+    {
+        if (!ITEMS_CheckItemTypeId(pNewItem, ITEMTYPE_WEAPON))
+        {
+            goto TRY_EQUIP; // [LABEL_113]
+        }
+        goto TO_INVENTORY; // [LABEL_115]
+    }
+
+CHECK_QUIVER:
+    if (nNewClass != gnCrossbowQuiverItemId && nNewClass != gnArrowQuiverItemId)
+    {
+TRY_EQUIP:
+        if (bEquip)
+        {
+            nResult = ITEMMODE_EquipItemAtResolvedBodyLocation(pGame, pPlayer, pNewItem, 0);
+            if (nResult)
+            {
+                bBought = 1;
+                SUNITNPC_RemovePurchasedItemFromStore(pGame, pNpc, pStoreItem, pPlayer, nTab);
+                ITEMS_SetItemFlag(pNewItem, IFLAG_TARGET, 1);
+                D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 0, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), pNewItem->dwUnitId, 4);
+                return 0; // [LABEL_117, then the loop ends: bMultibuy is 0 for non-belt items]
+            }
+        }
+    }
+
+TO_INVENTORY:
+    int32_t bNoRoom = bBought;
+    if (!bNoRoom)
+    {
+        ITEMS_SetInvPage(pNewItem, 0);
+        nResult = D2GAME_PlaceItem_6FC44410(__FILE__, __LINE__, pGame, pPlayer, pNewItem->dwUnitId, 0, 0, 1, 1, 0);
+        bNoRoom = nResult == 0;
+    }
+
+    if (bNoRoom)
+    {
+        // No room: give the gold back and drop the copy.
+        if (nGoldBefore != STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0))
+        {
+            PLRTRADE_AddGold(pPlayer, STAT_GOLD, nGoldBefore - STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0));
+        }
+        if (nBankBefore != STATLIST_UnitGetStatValue(pPlayer, STAT_GOLDBANK, 0))
+        {
+            PLRTRADE_AddGold(pPlayer, STAT_GOLDBANK, nBankBefore - STATLIST_UnitGetStatValue(pPlayer, STAT_GOLDBANK, 0));
+        }
+        ITEMS_RemoveFromAllPlayers(pGame, pNewItem);
+        if (!bBought)
+        {
+            D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 10, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), -1, 0);
+        }
+        return 0;
+    }
+
+    SUNITNPC_RemovePurchasedItemFromStore(pGame, pNpc, pStoreItem, pPlayer, nTab);
+    ITEMS_SetItemFlag(pNewItem, IFLAG_TARGET, 1);
+    D2GAME_SendPacket0x2A_6FC3F3B0(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), 0x2Au, 0, STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0), pNewItem->dwUnitId, 4);
+    return 0; // [LABEL_117, then the loop ends: bMultibuy is 0 for non-belt items]
 }
 
 //D2Game.0x6FCC92A0
+//1.14d: 0x00577F30
 int32_t __fastcall D2GAME_NPC_BuyItemHandler_6FCC92A0(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nNpcUnitId, int32_t nItemId, int32_t nItemMode, uint16_t nTransactionType, int32_t nCost, int32_t bMultibuy)
 {
     D2_ASSERT(pGame);
@@ -1539,7 +1567,7 @@ int32_t __fastcall D2GAME_NPC_BuyItemHandler_6FCC92A0(D2GameStrc* pGame, D2UnitS
     D2UnitStrc* pNpc = SUNIT_GetServerUnit(pGame, UNIT_MONSTER, nNpcUnitId);
     if (pNpc && pInteractUnit == pNpc)
     {
-        return sub_6FCC88B0(pGame, pPlayer, pNpc, nItemId, nItemMode, nTransactionType, nCost, bMultibuy);
+        return SUNITNPC_BuyItem(pGame, pPlayer, pNpc, nItemId, nItemMode, nTransactionType, nCost, bMultibuy);
     }
 
     const int32_t nGold = STATLIST_UnitGetStatValue(pPlayer, STAT_GOLD, 0);
@@ -1549,6 +1577,7 @@ int32_t __fastcall D2GAME_NPC_BuyItemHandler_6FCC92A0(D2GameStrc* pGame, D2UnitS
 }
 
 //D2Game.0x6FCC9350
+//1.14d: 0x00579C00
 void __fastcall D2GAME_NPC_ResurrectMerc_6FCC9350(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nNpcUnitId)
 {
     D2UnitStrc* pInteractUnit = SUNIT_GetInteractUnit(pGame, pPlayer);
@@ -1574,7 +1603,7 @@ void __fastcall D2GAME_NPC_ResurrectMerc_6FCC9350(D2GameStrc* pGame, D2UnitStrc*
     }
     }
 
-    D2UnitStrc* pHireling = sub_6FC7E8B0(pGame, pPlayer, 7, 1);
+    D2UnitStrc* pHireling = PLAYERPETS_GetFirstPetByType(pGame, pPlayer, 7, 1);
     if (!pHireling)
     {
         D2ClientStrc* pClient = SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__);
@@ -1604,7 +1633,7 @@ void __fastcall D2GAME_NPC_ResurrectMerc_6FCC9350(D2GameStrc* pGame, D2UnitStrc*
     UNITS_ChangeAnimMode(pHireling, 1);
 
     STATLIST_SetUnitStat(pHireling, STAT_HITPOINTS, STATLIST_GetMaxLifeFromUnit(pHireling), 0);
-    sub_6FCC84D0(pGame, pPlayer, pHireling);
+    SUNITNPC_ResurrectHireling(pGame, pPlayer, pHireling);
 
     D2ClientStrc* pClient = SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__);
     D2GAME_PACKETS_SendPacket0x9B_6FC3FB30(pClient, -1, 0);
@@ -1613,13 +1642,14 @@ void __fastcall D2GAME_NPC_ResurrectMerc_6FCC9350(D2GameStrc* pGame, D2UnitStrc*
 }
 
 //D2Game.0x6FCC9540
-void __fastcall D2GAME_NPC_HireMerc_6FCC9540(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nNpcUnitId, uint16_t a4)
+//1.14d: 0x00577FE0
+void __fastcall D2GAME_NPC_HireMerc_6FCC9540(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nNpcUnitId, uint16_t nMercName)
 {
     D2UnitStrc* pInteractUnit = SUNIT_GetInteractUnit(pGame, pPlayer);
     D2UnitStrc* pNpc = SUNIT_GetServerUnit(pGame, UNIT_MONSTER, nNpcUnitId);
     if (pNpc && pInteractUnit == pNpc)
     {
-        sub_6FCC7FA0(pGame, pPlayer, pNpc, a4);
+        SUNITNPC_HireMercenaryFromRoster(pGame, pPlayer, pNpc, nMercName);
     }
     else
     {
@@ -1628,7 +1658,8 @@ void __fastcall D2GAME_NPC_HireMerc_6FCC9540(D2GameStrc* pGame, D2UnitStrc* pPla
 }
 
 //D2Game.0x6FCC95B0
-int32_t __fastcall D2GAME_NPC_Repair_6FCC95B0(D2GameStrc* pGame, D2UnitStrc* pUnit, int32_t nNpcGUID, int32_t nItemGUID, int32_t nUnused, int32_t a6)
+//1.14d: 0x00578050
+int32_t __fastcall D2GAME_NPC_Repair_6FCC95B0(D2GameStrc* pGame, D2UnitStrc* pUnit, int32_t nNpcGUID, int32_t nItemGUID, int32_t nUnused, int32_t nRepairFlags)
 {
     D2_ASSERT(pGame);
 
@@ -1653,7 +1684,7 @@ int32_t __fastcall D2GAME_NPC_Repair_6FCC95B0(D2GameStrc* pGame, D2UnitStrc* pUn
         return 1;
     }
 
-    if (a6 < 0)
+    if (nRepairFlags < 0)
     {
         const int32_t nRepairCosts = ITEMS_GetAllRepairCosts(pGame, pUnit, pNpc->dwClassId, (D2C_Difficulties)pGame->nDifficulty, UNITS_GetPlayerData(pUnit)->pQuestData[pGame->nDifficulty], nullptr);
         if (nRepairCosts)
@@ -1755,6 +1786,7 @@ int32_t __fastcall D2GAME_NPC_Repair_6FCC95B0(D2GameStrc* pGame, D2UnitStrc* pUn
 }
 
 //D2Game.0x6FCC9C90
+//1.14d: 0x00578460
 void __fastcall D2GAME_NPC_IdentifyAllItems_6FCC9C90(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nNpcGUID)
 {
     if (!pPlayer)
@@ -1845,6 +1877,7 @@ void __fastcall D2GAME_NPC_IdentifyAllItems_6FCC9C90(D2GameStrc* pGame, D2UnitSt
 }
 
 //D2Game.0x6FCC9F40
+//1.14d: 0x00579D60
 int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nType, int32_t nNpcGUID, int32_t nItemGUID)
 {
     D2UnitStrc* pMonster = SUNIT_GetServerUnit(pGame, UNIT_MONSTER, nNpcGUID);
@@ -1859,10 +1892,10 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         return 0;
     }
 
-    int32_t a4 = 0;
+    int32_t bRefreshInventory = 0;
     if (MONSTERAI_GetInteractUnitCount(pMonster->pMonsterData->pMonInteract) == 1)
     {
-        a4 = 1;
+        bRefreshInventory = 1;
     }
 
     const int32_t nClassId = pMonster->dwClassId;
@@ -1889,7 +1922,7 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         case MONSTER_DREHYA:
         case MONSTER_MALAH:
             D2GAME_NPCS_SetInteractTrading_6FC61AF0(pMonster, pPlayer);
-            D2GAME_STORES_CreateVendorCache_6FCC74F0(pGame, pPlayer, pMonster, a4, 0);
+            D2GAME_STORES_CreateVendorCache_6FCC74F0(pGame, pPlayer, pMonster, bRefreshInventory, 0);
             return 0;
         default:
             return 0;
@@ -1906,7 +1939,7 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         case MONSTER_DREHYA:
         case MONSTER_NIHLATHAK:
             D2GAME_NPCS_SetInteractTrading_6FC61AF0(pMonster, pPlayer);
-            D2GAME_STORES_CreateVendorCache_6FCC74F0(pGame, pPlayer, pMonster, a4, 1);
+            D2GAME_STORES_CreateVendorCache_6FCC74F0(pGame, pPlayer, pMonster, bRefreshInventory, 1);
             return 0;
         default:
             return 0;
@@ -1944,9 +1977,9 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         D2UnitStrc* pInput = SUNIT_GetServerUnit(pGame, UNIT_ITEM, nItemGUID);
         if (!QUESTRECORD_GetQuestState(UNITS_GetPlayerData(pPlayer)->pQuestData[pGame->nDifficulty], QUESTSTATEFLAG_A1Q3, QFLAG_REWARDPENDING))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
 
@@ -1957,9 +1990,9 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
 
         if (!ITEMS_IsImbueable(pInput))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
 
@@ -1979,9 +2012,9 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
 
         if (!D2GAME_RemoveItemIfOnCursor_6FC49760(pGame, pPlayer, pInput))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
 
@@ -1995,13 +2028,13 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         D2UnitStrc* pOutput = D2GAME_CreateItemEx_6FC4ED80(pGame, &itemDrop, 0);
         if (!pOutput)
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
             return 0;
         }
 
         D2GAME_NPC_RepairItem_6FCC6970(pGame, pOutput, 0);
-        sub_6FC4BBB0(pGame, pOutput, pPlayer);
+        ITEMMODE_IdentifyItemAndApplyCharmProperties(pGame, pOutput, pPlayer);
         ITEMS_SetInvPage(pOutput, INVPAGE_INVENTORY);
 
         if (bInputIsPersonalized)
@@ -2021,7 +2054,7 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         }
 
         ACT1Q3_SetRewardGranted(pGame, pPlayer);
-        packet58.unk0x05 = 6;
+        packet58.nAction = 6;
         D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
 
         return 0;
@@ -2114,9 +2147,9 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         D2UnitStrc* pInput = SUNIT_GetServerUnit(pGame, UNIT_ITEM, nItemGUID);
         if (!QUESTRECORD_GetQuestState(UNITS_GetPlayerData(pPlayer)->pQuestData[pGame->nDifficulty], QUESTSTATEFLAG_A5Q1, QFLAG_REWARDPENDING))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
 
@@ -2127,26 +2160,26 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
 
         if (!ITEMS_IsSocketable(pInput))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
         
         D2UnitStrc* pOutput = ITEMS_Duplicate(pGame, pInput, pPlayer, 1);     
         if (!pOutput)
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
         
         if (!D2GAME_RemoveItemIfOnCursor_6FC49760(pGame, pPlayer, pInput))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
 
@@ -2171,7 +2204,7 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         ITEMS_AddSockets(pOutput, nSockets);
 
         D2GAME_NPC_RepairItem_6FCC6970(pGame, pOutput, 0);
-        sub_6FC4BBB0(pGame, pOutput, pPlayer);
+        ITEMMODE_IdentifyItemAndApplyCharmProperties(pGame, pOutput, pPlayer);
         ITEMS_SetInvPage(pOutput, 0);
 
         if (!D2GAME_PlaceItem_6FC44410(__FILE__, __LINE__, pGame, pPlayer, pOutput->dwUnitId, 0, 0, 1, 1, 0))
@@ -2185,7 +2218,7 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         }
 
         ACT5Q1_SetRewardGranted(pGame, pPlayer);
-        packet58.unk0x05 = 6;
+        packet58.nAction = 6;
         D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
         return 0;
     }
@@ -2210,9 +2243,9 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         D2UnitStrc* pInput = SUNIT_GetServerUnit(pGame, UNIT_ITEM, nItemGUID);
         if (!QUESTRECORD_GetQuestState(UNITS_GetPlayerData(pPlayer)->pQuestData[pGame->nDifficulty], QUESTSTATEFLAG_A5Q4, QFLAG_REWARDPENDING))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
 
@@ -2223,31 +2256,31 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
 
         if (!ITEMS_IsPersonalizable(pInput))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
 
         D2UnitStrc* pOutput = ITEMS_Duplicate(pGame, pInput, pPlayer, 1);
         if (!pOutput)
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             // TODO: Missing return 0?
         }
 
         if (!D2GAME_RemoveItemIfOnCursor_6FC49760(pGame, pPlayer, pInput))
         {
-            packet58.unk0x05 = 7;
+            packet58.nAction = 7;
             D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
-            sub_6FC44030(pGame, pPlayer, nItemGUID);
+            ITEMMODE_DropCursorItem(pGame, pPlayer, nItemGUID);
             return 0;
         }
 
         D2GAME_NPC_RepairItem_6FCC6970(pGame, pOutput, 0);
-        sub_6FC4BBB0(pGame, pOutput, pPlayer);
+        ITEMMODE_IdentifyItemAndApplyCharmProperties(pGame, pOutput, pPlayer);
         ITEMS_SetInvPage(pOutput, INVPAGE_INVENTORY);
 
         if (!D2GAME_PlaceItem_6FC44410(__FILE__, __LINE__, pGame, pPlayer, (pOutput ? pOutput->dwUnitId : -1), 0, 0, 1, 1, 0))
@@ -2264,7 +2297,7 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
         ITEMS_SetEarName(pOutput, UNITS_GetPlayerData(pPlayer)->szName);
         ACT5Q4_SetRewardGranted(pGame, pPlayer);
 
-        packet58.unk0x05 = 6;
+        packet58.nAction = 6;
         D2GAME_SendPacket0x58_6FC3F520(pClient, &packet58);
         return 0;
     }
@@ -2283,6 +2316,7 @@ int32_t __fastcall NPC_HandleDialogMessage(D2GameStrc* pGame, D2UnitStrc* pPlaye
 }
 
 //D2Game.0x6FCCA990
+//1.14d: 0x00578640
 void __fastcall D2GAME_NPC_IdentifyBoughtItem_6FCCA990(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nItemGUID)
 {
     if (UNITS_GetPlayerData(pPlayer)->dwBoughtItemId != nItemGUID)
@@ -2300,9 +2334,14 @@ void __fastcall D2GAME_NPC_IdentifyBoughtItem_6FCCA990(D2GameStrc* pGame, D2Unit
 }
 
 //D2Game.0x6FCCA9F0
+//1.14d: 0x00578790
 void __fastcall D2GAME_STORES_FillGamble_6FCCA9F0(D2GameStrc* pGame, D2UnitStrc* pNpc, D2UnitStrc* pUnit, D2NpcRecordStrc* pNpcRecord)
 {
+    //1.10f: D2Game.0x6FD4DC4C
+    //1.14d: 0x0088CACC
     static int32_t gnRingItemId = 0;
+    //1.10f: D2Game.0x6FD4DC50
+    //1.14d: 0x0088CAC8
     static int32_t gnAmuItemId = 0;
 
     D2GambleDataTbl* pGambleDataTbl = DATATBLS_GetGambleDataTables();
@@ -2317,7 +2356,7 @@ void __fastcall D2GAME_STORES_FillGamble_6FCCA9F0(D2GameStrc* pGame, D2UnitStrc*
         return;
     }
 
-    const uint32_t nHighQualityChance = pDifficultyLevelsTxtRecord->dwGambleUniq + pDifficultyLevelsTxtRecord->dwGambleSet + pDifficultyLevelsTxtRecord->dwGambleRare;
+    const int32_t nHighQualityChance = (int32_t)(pDifficultyLevelsTxtRecord->dwGambleUniq + pDifficultyLevelsTxtRecord->dwGambleSet + pDifficultyLevelsTxtRecord->dwGambleRare);
 
     if (!gnRingItemId)
     {
@@ -2336,7 +2375,7 @@ void __fastcall D2GAME_STORES_FillGamble_6FCCA9F0(D2GameStrc* pGame, D2UnitStrc*
     }
 
     pGamble->pInventory = INVENTORY_AllocInventory(pGame->pMemoryPool, 0);
-    pGamble->dwGUID = pUnit ? pUnit->dwUnitId : -1;
+    pGamble->dwPlayerGUID = pUnit ? pUnit->dwUnitId : -1;
     pGamble->pNext = pNpcRecord->pGamble;
     pNpcRecord->pGamble = pGamble;
 
@@ -2392,10 +2431,10 @@ void __fastcall D2GAME_STORES_FillGamble_6FCCA9F0(D2GameStrc* pGame, D2UnitStrc*
                 D2ItemsTxt* pUberItemsTxtRecord = DATATBLS_GetItemRecordFromItemCode(pItemsTxtRecord->dwUberCode, &nUberItemId);
                 if (pUberItemsTxtRecord)
                 {
-                    const uint32_t nUberItemChance = pDifficultyLevelsTxtRecord->dwGambleUber * (nItemLevel - pUberItemsTxtRecord->nLevel) + 1;
+                    const int32_t nUberItemChance = pDifficultyLevelsTxtRecord->dwGambleUber * (nItemLevel - pUberItemsTxtRecord->nLevel) + 1;
                     if (nUberItemChance > 0)
                     {
-                        if (ITEMS_RollLimitedRandomNumber(pSeed, 10000) < nUberItemChance)
+                        if ((int32_t)ITEMS_RollLimitedRandomNumber(pSeed, 10000) < nUberItemChance)
                         {
                             nItemId = nUberItemId;
                         }
@@ -2407,8 +2446,8 @@ void __fastcall D2GAME_STORES_FillGamble_6FCCA9F0(D2GameStrc* pGame, D2UnitStrc*
                                 D2ItemsTxt* pUltraItemsTxtRecord = DATATBLS_GetItemRecordFromItemCode(pItemsTxtRecord->dwUltraCode, &nUltraItemId);
                                 if (pUltraItemsTxtRecord)
                                 {
-                                    const uint32_t nUltraItemChance = pDifficultyLevelsTxtRecord->dwGambleUltra * (nItemLevel - pUltraItemsTxtRecord->nLevel) + 1;
-                                    if (nUltraItemChance > 0 && (ITEMS_RollRandomNumber(pSeed) % 10000) < nUltraItemChance)
+                                    const int32_t nUltraItemChance = pDifficultyLevelsTxtRecord->dwGambleUltra * (nItemLevel - pUltraItemsTxtRecord->nLevel) + 1;
+                                    if (nUltraItemChance > 0 && (int32_t)(ITEMS_RollRandomNumber(pSeed) % 10000) < nUltraItemChance)
                                     {
                                         nItemId = nUltraItemId;
                                     }
@@ -2423,12 +2462,12 @@ void __fastcall D2GAME_STORES_FillGamble_6FCCA9F0(D2GameStrc* pGame, D2UnitStrc*
         int32_t nItemQuality = ITEMQUAL_MAGIC;
         if (nHighQualityChance > 0)
         {
-            const uint32_t nQualityRoll = ITEMS_RollRandomNumber(pSeed) % 100000;
+            const int32_t nQualityRoll = ITEMS_RollRandomNumber(pSeed) % 100000;
             if (nQualityRoll < nHighQualityChance)
             {
-                if (nQualityRoll >= pDifficultyLevelsTxtRecord->dwGambleUniq)
+                if (nQualityRoll >= (int32_t)pDifficultyLevelsTxtRecord->dwGambleUniq)
                 {
-                    nItemQuality = (nQualityRoll >= (pDifficultyLevelsTxtRecord->dwGambleUniq + pDifficultyLevelsTxtRecord->dwGambleSet)) ? ITEMQUAL_RARE : ITEMQUAL_SET;
+                    nItemQuality = (nQualityRoll >= (int32_t)(pDifficultyLevelsTxtRecord->dwGambleUniq + pDifficultyLevelsTxtRecord->dwGambleSet)) ? ITEMQUAL_RARE : ITEMQUAL_SET;
                 }
                 else
                 {
@@ -2457,6 +2496,7 @@ void __fastcall D2GAME_STORES_FillGamble_6FCCA9F0(D2GameStrc* pGame, D2UnitStrc*
 }
 
 //D2Game.0x6FCCAE20
+//1.14d: 0x00578B30
 void __fastcall D2GAME_STORES_CreateVendorCache_6FCCAE20(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc, int32_t bGamble)
 {
     if (!pNpc)
@@ -2481,7 +2521,7 @@ void __fastcall D2GAME_STORES_CreateVendorCache_6FCCAE20(D2GameStrc* pGame, D2Un
             int32_t bHasGamble = 0;
             for (D2NpcGambleStrc* pNpcGamble = pNpcRecord->pGamble; pNpcGamble; pNpcGamble = pNpcGamble->pNext)
             {
-                if (pNpcGamble->dwGUID == nPlayerGUID)
+                if (pNpcGamble->dwPlayerGUID == nPlayerGUID)
                 {
                     bHasGamble = 1;
                 }
@@ -2514,7 +2554,7 @@ void __fastcall D2GAME_STORES_CreateVendorCache_6FCCAE20(D2GameStrc* pGame, D2Un
                 case MONSTER_GREIZ:
                 case MONSTER_ASHEARA:
                 case MONSTER_QUAL_KEHK:
-                    D2GAME_NPC_FirstFn_6FCC67D0(pGame, nNpcClassId, pNpcRecord);
+                    SUNITNPC_InitializeHirelingRoster(pGame, nNpcClassId, pNpcRecord);
                     break;
 				default:
 					break;
@@ -2527,6 +2567,7 @@ void __fastcall D2GAME_STORES_CreateVendorCache_6FCCAE20(D2GameStrc* pGame, D2Un
 }
 
 //D2Game.0x6FCCAF30
+//1.14d: 0x00578C20
 int32_t __fastcall D2GAME_NPC_RemoveStates_6FCCAF30(D2UnitStrc* pUnit)
 {
     int32_t bStateRemoved = 0;
@@ -2548,13 +2589,14 @@ int32_t __fastcall D2GAME_NPC_RemoveStates_6FCCAF30(D2UnitStrc* pUnit)
 }
 
 //D2Game.0x6FCCAFA0
-void __fastcall SUNITNPC_PetIterate_Heal(D2GameStrc* pGame, D2UnitStrc* a2, D2UnitStrc* pUnit, void* a4)
+//1.14d: 0x00578CA0
+void __fastcall SUNITNPC_PetIterate_Heal(D2GameStrc* pGame, D2UnitStrc* pOwner, D2UnitStrc* pUnit, void* pPlaySoundArg)
 {
     const int32_t nMaxHp = STATLIST_GetMaxLifeFromUnit(pUnit);
     if (STATLIST_UnitGetStatValue(pUnit, STAT_HITPOINTS, 0) < nMaxHp)
     {
         STATLIST_SetUnitStat(pUnit, STAT_HITPOINTS, nMaxHp, 0);
-        *(uint8_t*)a4 = 1;
+        *(uint8_t*)pPlaySoundArg = 1;
     }
 
     for (int32_t nState = 0; nState < sgptDataTables->nStatesTxtRecordCount; ++nState)
@@ -2566,7 +2608,7 @@ void __fastcall SUNITNPC_PetIterate_Heal(D2GameStrc* pGame, D2UnitStrc* a2, D2Un
             {
                 D2Common_10474(pUnit, pStatList);
                 STATLIST_FreeStatList(pStatList);
-                *(uint8_t*)a4 = 1;
+                *(uint8_t*)pPlaySoundArg = 1;
             }
         }
     }
@@ -2576,7 +2618,7 @@ void __fastcall SUNITNPC_PetIterate_Heal(D2GameStrc* pGame, D2UnitStrc* a2, D2Un
     {
         D2Common_10474(pUnit, pStatListPoison);
         STATLIST_FreeStatList(pStatListPoison);
-        *(uint8_t*)a4 = 1;
+        *(uint8_t*)pPlaySoundArg = 1;
     }
 
     D2StatListStrc* pStatListFreeze = STATLIST_GetStatListFromUnitAndState(pUnit, STATE_FREEZE);
@@ -2584,11 +2626,12 @@ void __fastcall SUNITNPC_PetIterate_Heal(D2GameStrc* pGame, D2UnitStrc* a2, D2Un
     {
         D2Common_10474(pUnit, pStatListFreeze);
         STATLIST_FreeStatList(pStatListFreeze);
-        *(uint8_t*)a4 = 1;
+        *(uint8_t*)pPlaySoundArg = 1;
     }
 }
 
 //D2Game.0x6FCCB080
+//1.14d: 0x00578D30
 void __fastcall D2GAME_NPC_HealPlayer_6FCCB080(D2GameStrc* pGame, D2UnitStrc* pUnit, D2UnitStrc* pNpc)
 {
     if (SUNIT_GetInteractUnit(pGame, pUnit) != pNpc)
@@ -2661,6 +2704,7 @@ void __fastcall D2GAME_NPC_HealPlayer_6FCCB080(D2GameStrc* pGame, D2UnitStrc* pU
 }
 
 //D2Game.0x6FCCB220
+//1.14d: 0x00578E70
 void __fastcall D2GAME_NPC_Heal_6FCCB220(D2GameStrc* pGame, D2UnitStrc* pUnit, D2UnitStrc* pNpc)
 {
     if (pNpc)
@@ -2688,6 +2732,7 @@ void __fastcall D2GAME_NPC_Heal_6FCCB220(D2GameStrc* pGame, D2UnitStrc* pUnit, D
 }
 
 //D2Game.0x6FCCB280
+//1.14d: 0x00578ED0
 void __fastcall D2GAME_NPC_PurchaseHeal_6FCCB280(D2GameStrc* pGame, D2UnitStrc* pUnit, int32_t nNpcGUID)
 {
     if (!pUnit)
@@ -2750,6 +2795,7 @@ void __fastcall D2GAME_NPC_PurchaseHeal_6FCCB280(D2GameStrc* pGame, D2UnitStrc* 
 }
 
 //D2Game.0x6FCCB4D0
+//1.14d: 0x00579130
 void __fastcall D2GAME_NPC_ResetInteract_6FCCB4D0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc)
 {
     SUNIT_ResetInteractInfo(pPlayer);
@@ -2764,6 +2810,7 @@ void __fastcall D2GAME_NPC_ResetInteract_6FCCB4D0(D2GameStrc* pGame, D2UnitStrc*
 }
 
 //D2Game.0x6FCCB520
+//1.14d: 0x00579180
 void __fastcall D2GAME_NPC_AssignMercenary_6FCCB520(D2GameStrc* pGame, D2UnitStrc* pPlayer, int32_t nMonster)
 {
     int32_t nUnused = 0;
@@ -2773,9 +2820,9 @@ void __fastcall D2GAME_NPC_AssignMercenary_6FCCB520(D2GameStrc* pGame, D2UnitStr
         return;
     }
 
-    if (!pGame->bExpansion || !sub_6FC7E8B0(pGame, pPlayer, 7, 1))
+    if (!pGame->bExpansion || !PLAYERPETS_GetFirstPetByType(pGame, pPlayer, 7, 1))
     {
-        if (!pGame->bExpansion && sub_6FC7E8B0(pGame, pPlayer, 7, 0))
+        if (!pGame->bExpansion && PLAYERPETS_GetFirstPetByType(pGame, pPlayer, 7, 0))
         {
             return;
         }
@@ -2798,13 +2845,13 @@ void __fastcall D2GAME_NPC_AssignMercenary_6FCCB520(D2GameStrc* pGame, D2UnitStr
 
                 D2GAME_SendPacket0x50_6FC3F440(SUNIT_GetClientFromPlayer(pPlayer, __FILE__, __LINE__), &packet50);
 
-                D2UnitStrc* pMerc = sub_6FC68D70(pGame, pPlayer, pHirelingTxtRecord->dwClass, MONMODE_NEUTRAL, 4, 0);
+                D2UnitStrc* pMerc = MONSTERSPAWN_SpawnAtUnit(pGame, pPlayer, pHirelingTxtRecord->dwClass, MONMODE_NEUTRAL, 4, 0);
                 if (!pMerc)
                 {
-                    pMerc = sub_6FC68D70(pGame, pPlayer, pHirelingTxtRecord->dwClass, MONMODE_NEUTRAL, 6, 0);
+                    pMerc = MONSTERSPAWN_SpawnAtUnit(pGame, pPlayer, pHirelingTxtRecord->dwClass, MONMODE_NEUTRAL, 6, 0);
                     if (!pMerc)
                     {
-                        pMerc = sub_6FC68D70(pGame, pPlayer, pHirelingTxtRecord->dwClass, MONMODE_NEUTRAL, 12, 0);
+                        pMerc = MONSTERSPAWN_SpawnAtUnit(pGame, pPlayer, pHirelingTxtRecord->dwClass, MONMODE_NEUTRAL, 12, 0);
                     }
                 }
 
@@ -2813,7 +2860,7 @@ void __fastcall D2GAME_NPC_AssignMercenary_6FCCB520(D2GameStrc* pGame, D2UnitStr
                     return;
                 }
 
-                sub_6FC61270(pGame, pPlayer, pMerc, -1, pMercDataRecord, 0);
+                MONSTERAI_AssignHireling(pGame, pPlayer, pMerc, -1, pMercDataRecord, 0);
                 break;
             }
         }
@@ -2835,11 +2882,12 @@ void __fastcall D2GAME_NPC_AssignMercenary_6FCCB520(D2GameStrc* pGame, D2UnitStr
     pNpcRecord->npcTrade.bHireInit = 0;
     pNpcRecord->pMercData = nullptr;
 
-    D2GAME_NPC_FirstFn_6FCC67D0(pGame, nMonster, pNpcRecord);
+    SUNITNPC_InitializeHirelingRoster(pGame, nMonster, pNpcRecord);
 }
 
 //D2Game.0x6FCCB7D0
-int32_t __fastcall D2GAME_NPC_IsItemInNpcInventory_6FCCB7D0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc, D2UnitStrc* pItem, int32_t a4)
+//1.14d: 0x00579360
+int32_t __fastcall D2GAME_NPC_IsItemInNpcInventory_6FCCB7D0(D2GameStrc* pGame, D2UnitStrc* pPlayer, D2UnitStrc* pNpc, D2UnitStrc* pItem, int32_t bRemoveFromShop)
 {
     int32_t nUnused = 0;
     D2NpcRecordStrc* pNpcRecord = SUNITPROXY_GetNpcRecordFromUnit(pGame, pNpc, &nUnused);
@@ -2859,7 +2907,7 @@ int32_t __fastcall D2GAME_NPC_IsItemInNpcInventory_6FCCB7D0(D2GameStrc* pGame, D
         return 0;
     }
 
-    if (a4)
+    if (bRemoveFromShop)
     {
         return 1;
     }
@@ -2867,7 +2915,7 @@ int32_t __fastcall D2GAME_NPC_IsItemInNpcInventory_6FCCB7D0(D2GameStrc* pGame, D
     const int32_t nPlayerGUID = pPlayer ? pPlayer->dwUnitId : -1;
     for (D2NpcGambleStrc* pGamble = pNpcRecord->pGamble; pGamble; pGamble = pGamble->pNext)
     {
-        if (pGamble->dwGUID == nPlayerGUID)
+        if (pGamble->dwPlayerGUID == nPlayerGUID)
         {
             for (D2UnitStrc* pInventoryItem = INVENTORY_GetFirstItem(pGamble->pInventory); pInventoryItem; pInventoryItem = INVENTORY_GetNextItem(pInventoryItem))
             {

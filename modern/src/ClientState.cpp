@@ -1,3 +1,4 @@
+#include "ArchivePlan.h"
 // The game session as the client runs it: ticking the world, the game's packets to the client, closing windows, picking
 // units under the cursor, file locations.
 #include "ClientState.h"
@@ -6,6 +7,29 @@
 #include "NpcSpeech.h"
 #include "ProgramPath.h"
 #include "TouchControls.h"
+
+namespace {
+struct CorpseTarget {int x,y;uint32_t classId;};
+struct CurseCenter {int center,picture;float x,y;int radius;uint64_t born;};
+struct SessionTargets {
+    struct SeenMissile {uint32_t classId;d2::FixedPoint position;int32_t frame;int32_t skill;uint8_t facing;};
+    std::map<uint32_t,std::tuple<uint32_t,int32_t,int32_t>> itemModes;
+    uint32_t itemLevel=0,roll=12345;
+    bool itemModesSeeded=false,statesSeeded=false;
+    std::map<d2::EntityId,SeenMissile> missilesBefore;
+    std::set<d2::EntityId> fallen,shardSeen,trailed;
+    std::map<d2::EntityId,int> cloudAge;
+    std::map<d2::EntityId,bool> redeemed;
+    std::map<d2::EntityId,uint8_t> modes;
+    std::array<uint32_t,8> playerStates{};
+    std::map<d2::EntityId,std::array<uint32_t,8>> unitStates;
+    uint32_t lastFrame=0,lastWaypointLevel=0;
+    std::optional<CorpseTarget> corpseTarget;
+    std::vector<CurseCenter> curseCenters;
+    uint32_t curseRoll=0x9E3779B9u;
+};
+SessionTargets sessionTargets;
+}
 
 // The click of the interface's buttons (sounds.txt cursor_button_click).
 void buttonSound(){if(gameAudio)gameAudio->effect("cursor\\button.wav");}
@@ -24,11 +48,15 @@ std::filesystem::path defaultGameDirectory() {
 }
 
 std::filesystem::path defaultSaveDirectory() {
-    if(const auto privateDirectory=d2::environmentPath("D2NEXT_SAVE_DIR");!privateDirectory.empty())
-        return privateDirectory;
-    const auto workingDirectory=std::filesystem::current_path();
-    if(std::filesystem::exists(workingDirectory/L"MPQ"))return workingDirectory/L"Save";
-    return executableDirectory()/L"Save";
+    auto base=[] {
+        if(const auto privateDirectory=d2::environmentPath("D2NEXT_SAVE_DIR");!privateDirectory.empty())return privateDirectory;
+        const auto workingDirectory=std::filesystem::current_path();
+        if(std::filesystem::exists(workingDirectory/L"MPQ"))return workingDirectory/L"Save";
+        return executableDirectory()/L"Save";
+    }();
+    const auto saves=d2::modSaveDirectory(base);
+    std::error_code error;std::filesystem::create_directories(saves,error);
+    return saves;
 }
 std::array<float,2> characterAnchor(const d2::MapScene& scene,const CharacterView& view) {
     const auto p=d2::projectPoint(scene,view.x,view.y);
@@ -69,7 +97,7 @@ void runTick() {
         for(const auto& e:worldView.entities)if(e.id==1000+d2::EntityId(npcDialog.guid)){npc=&e;break;}
         const auto& me=worldView.player().position;
         const double dx=npc?double(npc->position.x-me.x)/d2::fixedOne:0,dy=npc?double(npc->position.y-me.y)/d2::fixedOne:0;
-        if(!npc||dx*dx+dy*dy>10.0*10.0)closeNpcDialog();
+        if(!npc||dx*dx+dy*dy>10.0*10.0){std::cout<<"NPC dialog closed: "<<(npc?"too far":"NPC not in view")<<" (npc "<<npcDialog.guid<<")\n";closeNpcDialog();}
     }
     // A drag released before the picked-up item reached the cursor: dropped now that it has, or forgotten after a second.
     if(itemDrag.waiting) {
@@ -77,7 +105,13 @@ void runTick() {
         else if(nowMilliseconds()>itemDrag.since+1000)itemDrag.waiting=false;
     }
     // The NPC has finished speaking (and the text has scrolled by): back to their menu.
-    if(npcDialog.open&&npcDialog.page==NpcDialog::Page::Talk&&nowMilliseconds()>=npcDialog.talkStart+uint64_t((npcDialog.talkSeconds+1)*1000))finishTalk();
+    if(npcDialog.talkWaitingVoice) {
+        if(gameAudio&&gameAudio->speechSeconds()>0){npcDialog.talkSeconds=gameAudio->speechSeconds();npcDialog.talkStart=nowMilliseconds();npcDialog.talkWaitingVoice=false;}
+        else if(nowMilliseconds()>npcDialog.talkStart+1000) { // no voice file after all
+            npcDialog.talkSeconds=1.5*double(std::max<size_t>(1,talkRows().size()));npcDialog.talkStart=nowMilliseconds();npcDialog.talkWaitingVoice=false;
+        }
+    }
+    else if(npcDialog.open&&npcDialog.page==NpcDialog::Page::Talk&&nowMilliseconds()>=npcDialog.talkStart+uint64_t((npcDialog.talkSeconds+1)*1000))finishTalk();
     // The open quest log asks the game for the quests (packet 0x40) when it opens and every two seconds.
     if(questLog.open&&(questLog.requestedAt==0||worldView.tick>=questLog.requestedAt+50)) {
         pendingCommands.push_back(d2::Command::raw(0x40|(1<<8),0,0,0,0));questLog.requestedAt=std::max<uint64_t>(worldView.tick,1);
@@ -106,8 +140,8 @@ void runTick() {
     }
     {
         // Newly dropped or newly landed ground items briefly show their labels, like the original client's item-display pulse.
-        static std::map<uint32_t,std::tuple<uint32_t,int32_t,int32_t>> itemModes; // id -> mode, x, y
-        static uint32_t itemLevel=0;static bool itemModesSeeded=false;
+        auto& itemModes=sessionTargets.itemModes;
+        auto& itemLevel=sessionTargets.itemLevel;auto& itemModesSeeded=sessionTargets.itemModesSeeded;
         if(worldView.level!=itemLevel){itemLevel=worldView.level;itemModes.clear();itemLabelUntil.clear();itemModesSeeded=false;}
         std::map<uint32_t,std::tuple<uint32_t,int32_t,int32_t>> now;
         for(const auto& item:worldView.items)if(!item.vendor) {
@@ -125,9 +159,9 @@ void runTick() {
     {
         // Where a missile ended, the effects the client adds itself (its CltHitSubMissiles that stay put: explosions); they
         // last their Range in ticks.
-        struct SeenMissile {uint32_t classId;d2::FixedPoint position;int32_t frame;int32_t skill;uint8_t facing;};
-        static std::map<d2::EntityId,SeenMissile> before;
-        static uint32_t roll=12345;
+        using SeenMissile=SessionTargets::SeenMissile;
+        auto& before=sessionTargets.missilesBefore;
+        auto& roll=sessionTargets.roll;
         auto random=[&](int n){roll=roll*1103515245u+12345u;return int((roll>>16)%uint32_t(std::max(n,1)));};
         // overlay.txt 1ofN: the client rolls, and plays the overlay on a 1-in-N chance (1 always).
         auto playOnce=[&](uint32_t unit,const std::string& name){
@@ -195,7 +229,7 @@ void runTick() {
         // its tail) are created once and fall onto it. CltParam1 frames, CltParam2 pixels of height and CltParam3 pixels
         // of sideways offset per frame; the game's minimum for each is 1. They are not sprayed again every few ticks.
         if(gameMissiles) {
-            static std::set<d2::EntityId> fallen;
+            auto& fallen=sessionTargets.fallen;
             std::set<d2::EntityId> falling;
             for(const auto& [id,m]:now)if(const auto* info=gameMissiles->find(m.classId);info&&info->clientDo==9) {
                 falling.insert(id);
@@ -225,7 +259,7 @@ void runTick() {
                 if(frames>0)clientEffects.push_back({uint32_t(row),x,y,worldView.tick,0,0,0,frames,sub->clientParam[1],0});
                 else clientEffects.push_back({uint32_t(row),x,y,worldView.tick,0,0,0});
             };
-            static std::set<d2::EntityId> shardSeen;
+            auto& shardSeen=sessionTargets.shardSeen;
             std::set<d2::EntityId> shardNow;
             for(const auto& [id,m]:now)if(const auto* info=gameMissiles->find(m.classId)) {
                 const float x=float(m.position.x)/d2::fixedOne,y=float(m.position.y)/d2::fixedOne;
@@ -270,7 +304,7 @@ void runTick() {
             for(int i=0;i<count;++i)placeStill(row,x+float(span?random(span*2)-span:0),y+float(span?random(span*2)-span:0));
         };
         if(gameMissiles) {
-            static std::map<d2::EntityId,int> cloudAge;
+            auto& cloudAge=sessionTargets.cloudAge;
             std::map<d2::EntityId,int> cloudNow;
             for(const auto& [id,m]:now)if(const auto* info=gameMissiles->find(m.classId)) {
                 const float x=float(m.position.x)/d2::fixedOne,y=float(m.position.y)/d2::fixedOne;
@@ -298,7 +332,7 @@ void runTick() {
                 const uint32_t offset=sub->randStart?uint32_t(random(std::max(1,sub->effectTicks()))):0;
                 clientEffects.push_back({uint32_t(row),x,y,worldView.tick,vx,vy,offset,0,0,0,facing,life});
             };
-            static std::set<d2::EntityId> trailed;
+            auto& trailed=sessionTargets.trailed;
             std::set<d2::EntityId> trailNow;
             for(const auto& [id,m]:now)if(const auto* info=gameMissiles->find(m.classId)) {
                 if((info->clientDo!=8&&info->clientDo!=18)||info->clientSub[0]<0)continue;
@@ -451,8 +485,8 @@ void runTick() {
         // Effects the client adds for units' states (states.txt cltactivefunc and the redeemed state's skill): Sanctuary's
         // sparkles (sanctuarybolt, Gleam) around the paladin, Open Wounds' blood dripping, and Redemption's ghost where a
         // corpse is redeemed. The game's own client functions pick the spots; these are spread at random nearby.
-        static std::map<d2::EntityId,bool> redeemed;
-        auto has=[](const std::array<uint32_t,6>& states,int s){return (states[size_t(s>>5)]&(1u<<(s&31)))!=0;};
+        auto& redeemed=sessionTargets.redeemed;
+        auto has=[](const std::array<uint32_t,8>& states,int s){return (states[size_t(s>>5)]&(1u<<(s&31)))!=0;};
         auto spawn=[&](const std::string& name,float x,float y,float vx=0,float vy=0){
             if(const int row=gameMissiles?gameMissiles->rowOf(name):-1;row>=0) {
                 const auto* info=gameMissiles->find(uint32_t(row));
@@ -464,7 +498,7 @@ void runTick() {
         // A monster's hit by an element: when it falls into death, get-hit or knockback (modes 0, 3, 13) the client plays
         // the element's overlay over it. D2Game's hit class high nibble carries the element even for pure spell hits such as
         // Fire Bolt (0x20) and Charged Bolt (0x40), where the low weapon-kind nibble is zero.
-        static std::map<d2::EntityId,uint8_t> modes;
+        auto& modes=sessionTargets.modes;
         std::map<d2::EntityId,uint8_t> modesNow;
         for(const auto& e:worldView.entities)if(e.kind==d2::EntityKind::Enemy||e.kind==d2::EntityKind::Corpse) {
             modesNow[e.id]=e.mode;
@@ -506,12 +540,12 @@ void runTick() {
         // states.txt castoverlay / removerlay: played once when a state starts or ends (a curse's flash, poison's hit).
         // The first report only records what is already on, so loading in does not replay them.
         {
-            static std::array<uint32_t,6> playerStates{};
-            static std::map<d2::EntityId,std::array<uint32_t,6>> unitStates;
-            static bool seeded=false;
-            auto edges=[&](uint32_t unit,const std::array<uint32_t,6>& states,const std::array<uint32_t,6>* was) {
+            auto& playerStates=sessionTargets.playerStates;
+            auto& unitStates=sessionTargets.unitStates;
+            auto& seeded=sessionTargets.statesSeeded;
+            auto edges=[&](uint32_t unit,const std::array<uint32_t,8>& states,const std::array<uint32_t,8>* was) {
                 if(!was||!gameStates)return;
-                for(uint32_t s=0;s<192;++s) {
+                for(uint32_t s=0;s<256;++s) {
                     const bool on=(states[s>>5]&(1u<<(s&31)))!=0,prev=((*was)[s>>5]&(1u<<(s&31)))!=0;
                     if(on==prev)continue;
                     const auto* info=gameStates->find(s);if(!info)continue;
@@ -524,7 +558,7 @@ void runTick() {
                 seeded=true;
             } else {
                 edges(0,worldView.player().states,&playerStates);playerStates=worldView.player().states;
-                std::map<d2::EntityId,std::array<uint32_t,6>> next;
+                std::map<d2::EntityId,std::array<uint32_t,8>> next;
                 for(const auto& e:worldView.entities)if(e.kind==d2::EntityKind::Enemy||e.kind==d2::EntityKind::Corpse||e.kind==d2::EntityKind::TownPerson) {
                     const auto it=unitStates.find(e.id);
                     edges(uint32_t(e.id-1000),e.states,it==unitStates.end()?nullptr:&it->second);
@@ -565,14 +599,13 @@ void runTick() {
         // clockwise), and keeps facing that way until walking again.
         const auto& p=worldView.player();
         // A swing that follows another keeps the mode; its animation starting over (the frame going back) marks it instead.
-        static uint32_t lastFrame=0;
+        auto& lastFrame=sessionTargets.lastFrame;
         const bool restarted=p.mode==lastPlayerMode&&p.animationFrame!=UINT32_MAX&&p.animationFrame<lastFrame;
         lastFrame=p.animationFrame==UINT32_MAX?0:p.animationFrame;
         // The cast overlay restarts with each cast, including one that never leaves the cast mode.
         if(p.mode==10&&(lastPlayerMode!=10||restarted))castStart=worldView.tick;
         const bool actionMode=(p.mode>=7&&p.mode<=8)||p.mode==10||(p.mode>=13&&p.mode<=16)||p.mode==18;
-        struct CorpseTarget {int x,y;uint32_t classId;};
-        static std::optional<CorpseTarget> corpseTarget;
+        auto& corpseTarget=sessionTargets.corpseTarget;
         auto targetPosition=[&]() -> std::optional<std::array<double,2>> {
             if(actionTargetIsPoint)return std::array<double,2>{actionTargetPoint.x+.5,actionTargetPoint.y+.5};
             if(actionTargetUnit)for(const auto& e:worldView.entities)if(e.id==d2::EntityId(1000+actionTargetUnit))return std::array<double,2>{double(e.position.x)/d2::fixedOne,double(e.position.y)/d2::fixedOne};
@@ -659,11 +692,10 @@ void runTick() {
         // The center is gone when its frames reach 0, so the last disc is at 3 remaining.
         // Mind Blast (cltdofunc 8, 0x6FABFD40) does the same with its own visible center: cltmissilea (mindblast center,
         // pCltDoFunc 17 too) carrying cltmissileb (mindblast hit) over a disc of aurarangecalc, without the - 3.
-        struct CurseCenter {int center,picture;float x,y;int radius;uint64_t born;};
         if(p.frameEvent&&actionMode&&castSkill)pendingDoSoundSkill=uint32_t(castSkill);
         if(p.frameEvent&&std::getenv("D2MODERN_MISSILE_LOG"))std::cout<<"Frame event: mode "<<int(p.mode)<<", skill "<<castSkill<<", tick "<<worldView.tick<<"\n";
-        static std::vector<CurseCenter> curseCenters;
-        static uint32_t curseRoll=0x9E3779B9u;
+        auto& curseCenters=sessionTargets.curseCenters;
+        auto& curseRoll=sessionTargets.curseRoll;
         if(p.frameEvent&&actionMode&&gameMissiles&&gameSkills)if(const auto* skill=gameSkills->find(uint32_t(castSkill));skill&&(skill->clientDo==30||skill->clientDo==8)) {
             int level=0;for(const auto& s:worldView.skills)if(s.id==skill->id)level=s.level;
             const bool curse=skill->clientDo==30;
@@ -743,7 +775,7 @@ void runTick() {
             }
         } else if(p.moving)heldFacing=-1;
     }
-    {static uint32_t lastLevel=0;if(worldView.level!=lastLevel){lastLevel=worldView.level;waypointMenu=WaypointMenu{};}} // a new level: the travel already ended the waypoint use, so nothing is sent
+    {auto& lastLevel=sessionTargets.lastWaypointLevel;if(worldView.level!=lastLevel){lastLevel=worldView.level;waypointMenu=WaypointMenu{};}} // a new level: the travel already ended the waypoint use, so nothing is sent
     if(afterTick)afterTick();
     for(const auto& o:worldView.objects)objectClasses[o.id]=o.classId;
     handleServerPackets();
@@ -852,12 +884,12 @@ void startTalk(uint16_t line) {
     pendingCommands.push_back(d2::Command::raw(0x2F|(9<<8),1,npcDialog.guid,0,0));
     // The voice of the first spoken line (the client's own table from line to sounds.txt row); the text scrolls for as long
     // as it speaks, or 1.5 seconds a row when the line has no voice.
-    npcDialog.talkSeconds=0;
+    npcDialog.talkSeconds=0;npcDialog.talkWaitingVoice=false;
     for(const auto id:npcDialog.speaking?std::vector<uint16_t>{npcDialog.speaking}:std::vector<uint16_t>{})if(const int sound=d2::speechSound(id)) {
-        if(gameAudio&&gameSounds){gameAudio->speech(gameSounds->fileByIndex(sound));npcDialog.talkSeconds=gameAudio->speechSeconds();}
+        if(gameAudio&&gameSounds){const auto file=gameSounds->fileByIndex(sound);gameAudio->speech(file);npcDialog.talkWaitingVoice=!file.empty();}
         break;
     }
-    if(npcDialog.talkSeconds<=0)npcDialog.talkSeconds=1.5*double(std::max<size_t>(1,talkRows().size()));
+    if(!npcDialog.talkWaitingVoice)npcDialog.talkSeconds=1.5*double(std::max<size_t>(1,talkRows().size()));
     npcDialog.talkStart=nowMilliseconds();
 }
 void finishTalk() {
@@ -882,6 +914,14 @@ void closeNpcDialog() {
 void handleServerPackets() {
     const auto& stream=worldView.server;
     auto u32=[](const uint8_t* p){return uint32_t(p[0])|(uint32_t(p[1])<<8)|(uint32_t(p[2])<<16)|(uint32_t(p[3])<<24);};
+    // D2GSPacketSrv81: this player's hireling (its type, monstats class, owner, unit, seed, name string). On joining a game
+    // (again, after Save and Exit) it can come before the hero's own unit id is known: held until then.
+    auto applyHireling=[&](const d2::HirelingOwnership& ownership) {
+        mercClass=ownership.classId;mercGuid=ownership.guid;mercName=ownership.name;
+        std::erase_if(pets,[&](const Pet& pet){return pet.guid==mercGuid;});
+        pets.push_back({ownership.type,mercClass,mercGuid,mercName});
+    };
+    heldHirelings.ready(worldView.nativeGuid,applyHireling);
     for(size_t at=0;at+2<=stream.size();) {
         const size_t length=size_t(stream[at])|(size_t(stream[at+1])<<8);at+=2;
         if(at+length>stream.size())break;
@@ -919,11 +959,8 @@ void handleServerPackets() {
             const uint32_t guid=u32(p+2);const uint16_t line=uint16_t(p[10]|(p[11]<<8));
             std::erase_if(overheadTexts,[&](const OverheadText& o){return o.guid==guid;});
             if(gameStrings)overheadTexts.push_back({guid,gameStrings->byId(line),worldView.tick+100});
-        } else if(length>=20&&p[0]==0x81&&u32(p+4)==worldView.nativeGuid) {
-            // D2GSPacketSrv81: this player's hireling (its type, monstats class, owner, unit, seed, name string).
-            mercClass=uint32_t(p[2]|(p[3]<<8));mercGuid=u32(p+8);mercName=uint32_t(p[16]|(p[17]<<8));
-            std::erase_if(pets,[&](const Pet& pet){return pet.guid==mercGuid;});
-            pets.push_back({p[1],mercClass,mercGuid,mercName});
+        } else if(length>=20&&p[0]==0x81) {
+            heldHirelings.receive(std::span(p,length),worldView.nativeGuid,applyHireling);
         } else if(length>=7&&p[0]==0x9B) {
             deadMercName=int16_t(p[1]|(p[2]<<8));resurrectCost=int32_t(u32(p+3));
         } else if(length>=13&&p[0]==0x7A&&(p[1]==0||u32(p+5)==worldView.nativeGuid)) {
@@ -1047,6 +1084,7 @@ void saveRequestedShot(const std::function<void(const std::filesystem::path&)>& 
 // command line's choices stay). Pointers into the game that ended (its scene, tables, sounds) are cleared; the next
 // game sets them again.
 void resetClientState() {
+    sessionTargets=SessionTargets{};
     touch::reset(); // first: letting go of the controls may queue orders, cleared below
     frameStep=0;panX=panY=0;dragX=dragY=0;dragging=false;
     showCollision=false;followPlayer=false;runEnabled=false;
@@ -1070,7 +1108,8 @@ void resetClientState() {
     waypointMenu=WaypointMenu{};waypointRegions.clear();waypointPanelX=waypointPanelY=waypointPanelW=waypointPanelH=0;
     dialogRegions.clear();dialogX=dialogY=dialogW=dialogH=0;
     skillsOpen=characterOpen=false;miniPanelOpen=false;automapOpen=false;
-    sceneRooms.clear();sceneOrigin={};skillTab=2;skillMenu=0;characterClass=-1;characterName.clear();pets.clear();mercGuid=0;deadMercName=-1;overheadTexts.clear();
+    sceneRooms.clear();sceneOrigin={};skillTab=2;skillMenu=0;characterClass=-1;characterName.clear();pets.clear();heldHirelings.clear();mercGuid=mercClass=mercName=0;deadMercName=-1;resurrectCost=0;overheadTexts.clear();
     skillRegions.clear();skillPanelX=skillPanelY=skillPanelW=skillPanelH=0;characterPanelX=characterPanelY=characterPanelW=characterPanelH=0;
     leftHeld=false;frontEnd=nullptr;
 }
+

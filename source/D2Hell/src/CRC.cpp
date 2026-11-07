@@ -23,11 +23,12 @@ uint32_t sgCrc32LookupTable[256]
 };
 
 //D2Game.0x6FD269D3
+//1.14d: 0x006C99F6
 uint32_t CRC32_Compute(void* pData, size_t dwSize)
 {
 	D2_ASSERT(dwSize);
 	uint32_t nCRC32 = 0xFFFFFFFFu;
-	for (int i = 0; i < dwSize; i++)
+	for (size_t i = 0; i < dwSize; i++)
 	{
 		const uint8_t nByte = ((uint8_t*)pData)[i];
 		nCRC32 = sgCrc32LookupTable[(nCRC32 ^ nByte) & 0xFF] ^ (nCRC32 >> 8);

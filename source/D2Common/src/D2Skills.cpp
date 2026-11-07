@@ -21,6 +21,8 @@
 
 //TODO: Find names
 
+//1.10f: D2Common.0x6FDE5804
+//1.14d: 0x00745774
 D2CalcCallbackInfoStrc off_6FDE5804[] =
 {
 	{ MISSILE_GetMinimum, 2 },
@@ -31,13 +33,19 @@ D2CalcCallbackInfoStrc off_6FDE5804[] =
 	{ sub_6FD982A0, 2 },
 	{ sub_6FDAF7A0, 3 },
 };
+//1.10f: D2Common.0x6FDE583C
+//1.14d: 0x007457AC
 int dword_6FDE583C = ARRAY_SIZE(off_6FDE5804);
 
+//1.10f: D2Common.0x6FDD2B98
+//1.14d: 0x006EB308
 const int dword_6FDD2B98[] =
 {
 	0, 1, 2, 4, 7, 8, 9, 10, 13, 14, 15, 16, 17, 19, 18, 3
 };
 
+//1.10f: D2Common.0x6FDD2BD8
+//1.14d: 0x006EB348
 const int dword_6FDD2BD8[] =
 {
 	0, 1, 2, 15, 3, 1, 2, 4, 5, 6, 7, 4, 11, 8, 9, 10, 11, 12, 14, 13
@@ -47,6 +55,7 @@ const int dword_6FDD2BD8[] =
 
 
 //D2Common.0x6FDAEB10 (#10938)
+//1.14d: 0x00643690
 short __stdcall SKILLS_GetPassiveState(int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -60,7 +69,7 @@ short __stdcall SKILLS_GetPassiveState(int nSkillId)
 }
 
 //D2Common.0x6FDAEB60 (#11271)
-//TODO: v8
+//1.14d: 0x00646460
 int __stdcall SKILLS_GetSpecialParamValue(D2UnitStrc* pUnit, uint8_t nParamId, int nSkillId, int nSkillLevel)
 {
 	D2SkillDescTxt* pSkillDescTxtRecord = NULL;
@@ -416,6 +425,7 @@ int __stdcall SKILLS_GetSpecialParamValue(D2UnitStrc* pUnit, uint8_t nParamId, i
 }
 
 //D2Common.0x6FDAF6A0
+//1.14d: 0x00646BE0
 int __fastcall sub_6FDAF6A0(int32_t nParamId, void* pUserData)
 {
 	if (D2SkillCalcStrc * pSkillCalc = (D2SkillCalcStrc*) pUserData)
@@ -427,6 +437,7 @@ int __fastcall sub_6FDAF6A0(int32_t nParamId, void* pUserData)
 }
 
 //D2Common.0x6FDAF6C0
+//1.14d: 0x00646C00
 int __fastcall sub_6FDAF6C0(int nSkillId, int nParamId, int nUnused, void* pUserData)
 {
 	D2_MAYBE_UNUSED(nUnused);
@@ -452,6 +463,7 @@ int __fastcall sub_6FDAF6C0(int nSkillId, int nParamId, int nUnused, void* pUser
 }
 
 //D2Common.0x6FDAF780
+//1.14d: 0x00643740
 int __fastcall sub_6FDAF780(int nMissileId, int nParamId, int nUnused, void* pUserData)
 {
 	D2_MAYBE_UNUSED(nUnused);
@@ -464,6 +476,7 @@ int __fastcall sub_6FDAF780(int nMissileId, int nParamId, int nUnused, void* pUs
 }
 
 //D2Common.0x6FDAF7A0
+//1.14d: 0x00646C60
 int __fastcall sub_6FDAF7A0(int nSkillId, int a2, int a3, void* pUserData)
 {
 	if (D2SkillCalcStrc* pSkillCalc = (D2SkillCalcStrc*)pUserData)
@@ -475,6 +488,7 @@ int __fastcall sub_6FDAF7A0(int nSkillId, int a2, int a3, void* pUserData)
 }
 
 //D2Common.0x6FDAF7E0 (#11276)
+//1.14d: 0x00646CA0
 int __stdcall SKILLS_EvaluateSkillFormula(D2UnitStrc* pUnit, unsigned int nCalc, int nSkillId, int nSkillLevel)
 {
 	D2SkillCalcStrc pSkillCalc = {};
@@ -492,6 +506,7 @@ int __stdcall SKILLS_EvaluateSkillFormula(D2UnitStrc* pUnit, unsigned int nCalc,
 }
 
 //D2Common.0x6FDAF850 (#11302)
+//1.14d: 0x00646D00
 int __stdcall SKILLS_EvaluateSkillDescFormula(D2UnitStrc* pUnit, unsigned int nCalc, int nSkillId, int nSkillLevel)
 {
 	D2SkillCalcStrc pSkillCalc = {};
@@ -509,6 +524,7 @@ int __stdcall SKILLS_EvaluateSkillDescFormula(D2UnitStrc* pUnit, unsigned int nC
 }
 
 //D2Common.0x6FDAF8C0 (#10940)
+//1.14d: 0x00646D60
 void __stdcall SKILLS_RefreshSkill(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -600,6 +616,7 @@ void __stdcall SKILLS_RefreshSkill(D2UnitStrc* pUnit, int nSkillId)
 }
 
 //D2Common.0x6FDAFB40 (#10941)
+//1.14d: 0x00646F20
 void __stdcall SKILLS_RefreshPassiveSkills(D2UnitStrc* pUnit)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -629,6 +646,7 @@ void __stdcall SKILLS_RefreshPassiveSkills(D2UnitStrc* pUnit)
 }
 
 //D2Common.0x6FDAFC30
+//1.14d: 0x00643810
 D2SkillStrc* __fastcall SKILLS_GetHighestLevelSkillFromSkillId(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillStrc* pHighestLevelSkill = NULL;
@@ -637,6 +655,12 @@ D2SkillStrc* __fastcall SKILLS_GetHighestLevelSkillFromSkillId(D2UnitStrc* pUnit
 	{
 		for (D2SkillStrc* pSkill = pUnit->pSkills->pFirstSkill; pSkill; pSkill = pSkill->pNextSkill)
 		{
+#if D2_VERSION_MAJOR >= 1 && D2_VERSION_MINOR >= 11
+			if (pSkill->bExcludeFromHighestLevelLookup)
+			{
+				continue;
+			}
+#endif
 			if (pSkill->pSkillsTxt->nSkillId == nSkillId && (!pHighestLevelSkill || pSkill->nOwnerGUID == D2UnitInvalidGUID || pHighestLevelSkill->nOwnerGUID != D2UnitInvalidGUID && pSkill->nSkillLevel > pHighestLevelSkill->nSkillLevel))
 			{
 				pHighestLevelSkill = pSkill;
@@ -648,6 +672,7 @@ D2SkillStrc* __fastcall SKILLS_GetHighestLevelSkillFromSkillId(D2UnitStrc* pUnit
 }
 
 //D2Common.0x6FDAFC80 (#10942)
+//1.14d: 0x00643860
 int __stdcall SKILLS_GetSkillModeFromUnit(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	if (pUnit && pSkill)
@@ -659,6 +684,7 @@ int __stdcall SKILLS_GetSkillModeFromUnit(D2UnitStrc* pUnit, D2SkillStrc* pSkill
 }
 
 //D2Common.0x6FDAFCA0 (#11049)
+//1.14d: 0x00643880
 int __stdcall SKILLS_Return1(int a1)
 {
 	REMOVE_LATER_Trace("SKILLS_Return1: Useless");
@@ -666,6 +692,7 @@ int __stdcall SKILLS_Return1(int a1)
 }
 
 //D2Common.0x6FDAFCB0 (#10944)
+//1.14d: 0x00643890
 int __stdcall SKILLS_GetRange(D2SkillStrc* pSkill)
 {
 	if (pSkill && pSkill->pSkillsTxt)
@@ -677,6 +704,7 @@ int __stdcall SKILLS_GetRange(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDAFCD0 (#10945)
+//1.14d: 0x006438B0
 D2SkillListStrc* __stdcall SKILLS_AllocSkillList(void* pMemPool)
 {
 	D2SkillListStrc* pSkillList = D2_CALLOC_STRC_POOL(pMemPool, D2SkillListStrc);
@@ -687,6 +715,7 @@ D2SkillListStrc* __stdcall SKILLS_AllocSkillList(void* pMemPool)
 }
 
 //D2Common.0x6FDAFD10 (#10946)
+//1.14d: 0x00647EE0
 void __stdcall SKILLS_InitSkillList(D2UnitStrc* pUnit)
 {
 	D2CharStatsTxt* pCharStatsTxtRecord = NULL;
@@ -728,6 +757,7 @@ void __stdcall SKILLS_InitSkillList(D2UnitStrc* pUnit)
 }
 
 //D2Common.0x6FDAFEA0 (#10947)
+//1.14d: 0x006438F0
 D2SkillStrc* __stdcall SKILLS_GetNextSkill(D2SkillStrc* pSkill)
 {
 	if (pSkill)
@@ -740,6 +770,7 @@ D2SkillStrc* __stdcall SKILLS_GetNextSkill(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDAFEA0 (#10948)
+//1.14d: 0x00643910
 D2SkillStrc* __stdcall SKILLS_GetFirstSkillFromSkillList(D2SkillListStrc* pSkillList)
 {
 	if (pSkillList)
@@ -752,6 +783,7 @@ D2SkillStrc* __stdcall SKILLS_GetFirstSkillFromSkillList(D2SkillListStrc* pSkill
 }
 
 //D2Common.0x6FDAFEC0
+//1.14d: 0x00643930
 D2SkillStrc* __fastcall SKILLS_GetLeftSkillFromSkillList(D2SkillListStrc* pSkillList)
 {
 	D2_ASSERT(pSkillList);
@@ -760,6 +792,7 @@ D2SkillStrc* __fastcall SKILLS_GetLeftSkillFromSkillList(D2SkillListStrc* pSkill
 }
 
 //D2Common.0x6FDAFEF0
+//1.14d: 0x00643960
 D2SkillStrc* __fastcall SKILLS_GetRightSkillFromSkillList(D2SkillListStrc* pSkillList)
 {
 	D2_ASSERT(pSkillList);
@@ -768,6 +801,7 @@ D2SkillStrc* __fastcall SKILLS_GetRightSkillFromSkillList(D2SkillListStrc* pSkil
 }
 
 //D2Common.0x6FDAFF20
+//1.14d: 0x00643990
 void __fastcall SKILLS_SetUsedSkillInSkillList(D2SkillListStrc* pSkillList, D2SkillStrc* pUsedSkill)
 {
 	if (pSkillList)
@@ -777,6 +811,7 @@ void __fastcall SKILLS_SetUsedSkillInSkillList(D2SkillListStrc* pSkillList, D2Sk
 }
 
 //D2Common.0x6FDAFF30
+//1.14d: 0x006439A0
 D2SkillStrc* __fastcall SKILLS_GetUsedSkillFromSkillList(D2SkillListStrc* pSkillList)
 {
 	if (pSkillList)
@@ -788,24 +823,28 @@ D2SkillStrc* __fastcall SKILLS_GetUsedSkillFromSkillList(D2SkillListStrc* pSkill
 }
 
 //D2Common.0x6FDAFF40 (#10949)
+//1.14d: 0x006439B0
 D2SkillStrc* __fastcall SKILLS_GetSkillById(D2UnitStrc* pUnit, int nSkillId, D2UnitGUID nOwnerGUID)
 {
 	return SKILLS_GetSkill(pUnit, nSkillId, nOwnerGUID);
 }
 
 //D2Common.0x6FDAFF80 (#10950)
+//1.14d: 0x006439F0
 D2SkillStrc* __fastcall SKILLS_GetHighestLevelSkillFromUnitAndId(D2UnitStrc* pUnit, int nSkillId)
 {
 	return SKILLS_GetHighestLevelSkillFromSkillId(pUnit, nSkillId);
 }
 
 //D2Common.0x6FDAFFD0 (#10951)
+//1.14d: 0x006470F0
 void __stdcall SKILLS_RemoveSkill(D2UnitStrc* pUnit, int nSkillId, const char* szFile, int nLine)
 {
 	D2COMMON_SKILLS_RemoveSkill_6FDAFFF0(pUnit, nSkillId, 1, szFile, nLine);
 }
 
 //D2Common.0x6FDAFFF0
+//1.14d: 0x00646FD0
 void __fastcall D2COMMON_SKILLS_RemoveSkill_6FDAFFF0(D2UnitStrc* pUnit, int nSkillId, BOOL bDecrementAndCheckSkillLevel, const char* szFile, int nLine)
 {
 	if (!pUnit)
@@ -886,6 +925,7 @@ void __fastcall D2COMMON_SKILLS_RemoveSkill_6FDAFFF0(D2UnitStrc* pUnit, int nSki
 }
 
 //D2Common.0x6FDB0270 (#10958)
+//1.14d: 0x00643A00
 void* __stdcall D2Common_10958(D2UnitStrc* pUnit, void* a2)
 {
 	void* pResult = NULL;
@@ -900,6 +940,7 @@ void* __stdcall D2Common_10958(D2UnitStrc* pUnit, void* a2)
 }
 
 //D2Common.0x6FDB02A0 (#10959)
+//1.14d: 0x00643A30
 void* __stdcall D2Common_10959(D2UnitStrc* pUnit)
 {
 	if (pUnit && pUnit->pSkills)
@@ -911,6 +952,7 @@ void* __stdcall D2Common_10959(D2UnitStrc* pUnit)
 }
 
 //D2Common.0x6FDB02C0 (#10960)
+//1.14d: 0x00643A60
 void __stdcall SKILLS_FreeSkillList(D2UnitStrc* pUnit)
 {
 	D2SkillListStrc* pSkillList = NULL;
@@ -937,6 +979,7 @@ void __stdcall SKILLS_FreeSkillList(D2UnitStrc* pUnit)
 }
 
 //D2Common.0x6FDB0320 (#10952)
+//1.14d: 0x00647110
 D2SkillStrc* __stdcall SKILLS_AddSkill(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -1034,6 +1077,7 @@ D2SkillStrc* __stdcall SKILLS_AddSkill(D2UnitStrc* pUnit, int nSkillId)
 }
 
 //D2Common.0x6FDB04D0 (#10953)
+//1.14d: 0x00647280
 void __stdcall SKILLS_AssignSkill(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel, BOOL bRemove, const char* szFile, int nLine)
 {
 	D2SkillStrc* pSkill = NULL;
@@ -1081,6 +1125,7 @@ void __stdcall SKILLS_AssignSkill(D2UnitStrc* pUnit, int nSkillId, int nSkillLev
 }
 
 //D2Common.0x6FDB05E0 (#10954)
+//1.14d: 0x00647320
 void __stdcall D2Common_10954(D2UnitStrc* pUnit, D2UnitGUID nOwnerGUID, int nSkillId, int nSkillLevel, int nCharges, BOOL bFreeMemory)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -1158,6 +1203,9 @@ void __stdcall D2Common_10954(D2UnitStrc* pUnit, D2UnitGUID nOwnerGUID, int nSki
 					{
 						pSkill->nSkillLevel = nSkillLevel;
 						pSkill->nCharges = nCharges;
+#if D2_VERSION_MAJOR >= 1 && D2_VERSION_MINOR >= 11
+						pSkill->bExcludeFromHighestLevelLookup = 1;
+#endif
 					}
 					else
 					{
@@ -1181,6 +1229,9 @@ void __stdcall D2Common_10954(D2UnitStrc* pUnit, D2UnitGUID nOwnerGUID, int nSki
 						pSkill->nSkillLevel = nSkillLevel;
 						pSkill->nCharges = nCharges;
 						pSkill->nOwnerGUID = nOwnerGUID;
+#if D2_VERSION_MAJOR >= 1 && D2_VERSION_MINOR >= 11
+						pSkill->bExcludeFromHighestLevelLookup = 1;
+#endif
 						pSkill->pNextSkill = NULL;
 
 						if (pPreviousSkill)
@@ -1199,6 +1250,7 @@ void __stdcall D2Common_10954(D2UnitStrc* pUnit, D2UnitGUID nOwnerGUID, int nSki
 }
 
 //D2Common.0x6FDB08C0 (#10957)
+//1.14d: 0x00643AD0
 D2UnitGUID __stdcall SKILLS_GetOwnerGUIDFromSkill(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -1207,6 +1259,7 @@ D2UnitGUID __stdcall SKILLS_GetOwnerGUIDFromSkill(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB08F0 (#10955)
+//1.14d: 0x00643B00
 BOOL __stdcall SKILLS_GetSkillInfo(D2SkillStrc* pSkill, D2UnitGUID* pOwnerGUID, int* pSkillId, int* pSkillLevel, int* pCharges)
 {
 	D2_ASSERT(pSkill);
@@ -1239,6 +1292,7 @@ BOOL __stdcall SKILLS_GetSkillInfo(D2SkillStrc* pSkill, D2UnitGUID* pOwnerGUID, 
 }
 
 //D2Common.0x6FDB0960 (#10956)
+//1.14d: 0x00643B70
 BOOL __stdcall SKILLS_SetCharges(D2SkillStrc* pSkill, int nCharges)
 {
 	D2_ASSERT(pSkill);
@@ -1249,12 +1303,16 @@ BOOL __stdcall SKILLS_SetCharges(D2SkillStrc* pSkill, int nCharges)
 	}
 	else
 	{
+#if D2_VERSION_MAJOR >= 1 && D2_VERSION_MINOR >= 11
+		pSkill->bExcludeFromHighestLevelLookup = 1;
+#endif
 		pSkill->nCharges = nCharges;
 		return TRUE;
 	}
 }
 
 //D2Common.0x6FDB09A0 (#10961)
+//1.14d: 0x00643BC0
 void __stdcall SKILLS_SetLeftActiveSkill(D2UnitStrc* pUnit, int nSkillId, D2UnitGUID nOwnerGUID)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -1289,6 +1347,7 @@ void __stdcall SKILLS_SetLeftActiveSkill(D2UnitStrc* pUnit, int nSkillId, D2Unit
 }
 
 //D2Common.0x6FDB0A30 (#10962)
+//1.14d: 0x00643C50
 void __stdcall SKILLS_SetRightActiveSkill(D2UnitStrc* pUnit, int nSkillId, D2UnitGUID nOwnerGUID)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -1328,6 +1387,7 @@ void __stdcall SKILLS_SetRightActiveSkill(D2UnitStrc* pUnit, int nSkillId, D2Uni
 }
 
 //D2Common.0x6FDB0AC0 (#10963)
+//1.14d: 0x00643CE0
 int __stdcall SKILLS_GetSkillIdFromSkill(D2SkillStrc* pSkill, const char* szFile, int nLine)
 {
 	if (pSkill)
@@ -1342,6 +1402,7 @@ int __stdcall SKILLS_GetSkillIdFromSkill(D2SkillStrc* pSkill, const char* szFile
 }
 
 //D2Common.0x6FDB0AF0 (#10965)
+//1.14d: 0x00643D00
 int __fastcall SKILLS_GetSeqNumFromSkill(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	D2MonStatsTxt* pMonStatsTxtRecord = NULL;
@@ -1378,6 +1439,7 @@ int __fastcall SKILLS_GetSeqNumFromSkill(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB0B70 (#10964)
+//1.14d: 0x00647960
 int __stdcall SKILLS_GetUseState(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	D2UnitStrc* pRightHandItem = NULL;
@@ -1610,6 +1672,7 @@ int __stdcall SKILLS_GetUseState(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 
 //D2Common.0x6FDB0F50
 //TODO: Check name
+//1.14d: 0x00647540
 BOOL __fastcall D2Common_SKILLMANA_CheckStat_6FDB0F50(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	int nRequiredMana = 0;
@@ -1651,6 +1714,7 @@ BOOL __fastcall D2Common_SKILLMANA_CheckStat_6FDB0F50(D2UnitStrc* pUnit, D2Skill
 }
 
 //D2Common.0x6FDB1050
+//1.14d: 0x00643D60
 D2UnitStrc* __fastcall sub_6FDB1050(D2InventoryStrc* pInventory, int nBodyLoc)
 {
 	if (nBodyLoc == BODYLOC_LARM)
@@ -1664,6 +1728,7 @@ D2UnitStrc* __fastcall sub_6FDB1050(D2InventoryStrc* pInventory, int nBodyLoc)
 }
 
 //D2Common.0x6FDB1070
+//1.14d: 0x00647840
 BOOL __fastcall sub_6FDB1070(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	D2UnitStrc* pItem = NULL;
@@ -1710,6 +1775,7 @@ BOOL __fastcall sub_6FDB1070(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1130
+//1.14d: 0x00643D90
 BOOL __fastcall sub_6FDB1130(D2UnitStrc* pItem, D2UnitStrc* pUnit, D2SkillsTxt* pSkillsTxtRecord, int nType)
 {
 
@@ -1816,6 +1882,7 @@ BOOL __fastcall sub_6FDB1130(D2UnitStrc* pItem, D2UnitStrc* pUnit, D2SkillsTxt* 
 
 //D2Common.0x6FDB1380
 //TODO: Check name
+//1.14d: 0x00644060
 BOOL __fastcall D2Common_SKILLS_CheckShapeRestriction_6FDB1380(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	if (pUnit == nullptr || pSkill == nullptr || pSkill->pSkillsTxt == nullptr) {
@@ -1855,6 +1922,7 @@ BOOL __fastcall D2Common_SKILLS_CheckShapeRestriction_6FDB1380(D2UnitStrc* pUnit
 
 //D2Common.0x6FDB1400
 //TODO: Check name
+//1.14d: 0x006440F0
 BOOL __fastcall D2Common_SKILLMANA_CheckStartStat_6FDB1400(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	if (!pUnit || pUnit->dwUnitType != UNIT_PLAYER || pSkill->pSkillsTxt->wStartMana <= 0
@@ -1867,6 +1935,7 @@ BOOL __fastcall D2Common_SKILLMANA_CheckStartStat_6FDB1400(D2UnitStrc* pUnit, D2
 }
 
 //D2Common.0x6FDB1450
+//1.14d: 0x006478F0
 BOOL __fastcall SKILLS_CheckSkillDelay(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	if (pUnit && pUnit->dwUnitType == UNIT_PLAYER && STATES_CheckState(pUnit, STATE_SKILLDELAY))
@@ -1881,6 +1950,7 @@ BOOL __fastcall SKILLS_CheckSkillDelay(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1540 (#10966)
+//1.14d: 0x00644140
 D2SkillsTxt* __fastcall SKILLS_GetSkillsTxtRecordFromSkill(D2SkillStrc* pSkill)
 {
 	if (pSkill)
@@ -1892,6 +1962,7 @@ D2SkillsTxt* __fastcall SKILLS_GetSkillsTxtRecordFromSkill(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1550 (#10967)
+//1.14d: 0x00644150
 int __stdcall SKILLS_GetShrineSkillLevelBonus(D2UnitStrc* pUnit)
 {
 	if (STATES_CheckState(pUnit, STATE_SHRINE_SKILL))
@@ -1903,6 +1974,7 @@ int __stdcall SKILLS_GetShrineSkillLevelBonus(D2UnitStrc* pUnit)
 }
 
 //D2Common.0x6FDB1580
+//1.14d: 0x00644180
 int __fastcall SKILLS_GetBonusSkillLevel(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	D2SkillDescTxt* pSkillDescTxtRecord = NULL;
@@ -1982,6 +2054,7 @@ int __fastcall SKILLS_GetBonusSkillLevel(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1700 (#10968)
+//1.14d: 0x006442A0
 int __stdcall SKILLS_GetSkillLevel(D2UnitStrc* pUnit, D2SkillStrc* pSkill, BOOL bBonus)
 {
 	int nSkillLevel = 0;
@@ -2014,6 +2087,7 @@ int __stdcall SKILLS_GetSkillLevel(D2UnitStrc* pUnit, D2SkillStrc* pSkill, BOOL 
 }
 
 //D2Common.0x6FDB1750 (#11029)
+//1.14d: 0x00644300
 int __stdcall SKILLS_GetBonusSkillLevelFromSkillId(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillStrc* pSkill = NULL;
@@ -2037,6 +2111,7 @@ int __stdcall SKILLS_GetBonusSkillLevelFromSkillId(D2UnitStrc* pUnit, int nSkill
 }
 
 //D2Common.0x6FDB17A0 (#11030)
+//1.14d: 0x00647AA0
 void __stdcall D2Common_11030(D2UnitStrc* pUnit, int nSkillId, int a3)
 {
 	D2SkillStrc* pSkill = NULL;
@@ -2069,6 +2144,7 @@ void __stdcall D2Common_11030(D2UnitStrc* pUnit, int nSkillId, int a3)
 }
 
 //D2Common.0x6FDB1820 (#11031)
+//1.14d: 0x00647B20
 void __stdcall D2Common_11031(D2UnitStrc* pUnit, int nSkillId, int a3)
 {
 	D2SkillStrc* pSkill = SKILLS_GetSkill(pUnit, nSkillId, -1);
@@ -2100,6 +2176,7 @@ void __stdcall D2Common_11031(D2UnitStrc* pUnit, int nSkillId, int a3)
 }
 
 //D2Common.0x6FDB18B0 (#10974)
+//1.14d: 0x00644340
 void __stdcall SKILLS_SetSkillMode(D2SkillStrc* pSkill, int nSkillMode)
 {
 	if (pSkill && nSkillMode >= 0 && nSkillMode <= 32)
@@ -2109,6 +2186,7 @@ void __stdcall SKILLS_SetSkillMode(D2SkillStrc* pSkill, int nSkillMode)
 }
 
 //D2Common.0x6FDB18D0 (#10975)
+//1.14d: 0x644360
 int __stdcall SKILLS_GetSkillMode(D2SkillStrc* pSkill)
 {
 	if (pSkill)
@@ -2121,6 +2199,7 @@ int __stdcall SKILLS_GetSkillMode(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB18F0 (#10969)
+//1.14d: 0x00644380
 int __stdcall D2Common_10969(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -2129,6 +2208,7 @@ int __stdcall D2Common_10969(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1920 (#10970)
+//1.14d: 0x006443B0
 void __stdcall D2Common_10970(D2SkillStrc* pSkill, int nUnknown)
 {
 	D2_ASSERT(pSkill);
@@ -2137,6 +2217,7 @@ void __stdcall D2Common_10970(D2SkillStrc* pSkill, int nUnknown)
 }
 
 //D2Common.0x6FDB1950 (#10971)
+//1.14d: 0x006443F0
 int __stdcall D2Common_10971(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -2145,6 +2226,7 @@ int __stdcall D2Common_10971(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1980 (#10972)
+//1.14d: 0x00644420
 void __stdcall D2Common_10972(D2SkillStrc* pSkill, int nUnknown)
 {
 	D2_ASSERT(pSkill);
@@ -2153,6 +2235,7 @@ void __stdcall D2Common_10972(D2SkillStrc* pSkill, int nUnknown)
 }
 
 //D2Common.0x6FDB19B0 (#10973)
+//1.14d: 0x00644460
 void __stdcall D2Common_10973(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -2162,6 +2245,7 @@ void __stdcall D2Common_10973(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB19F0 (#10976)
+//1.14d: 0x006444A0
 int __stdcall SKILLS_GetParam1(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -2170,6 +2254,7 @@ int __stdcall SKILLS_GetParam1(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1A20 (#10977)
+//1.14d: 0x006444D0
 int __stdcall SKILLS_GetParam2(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -2178,6 +2263,7 @@ int __stdcall SKILLS_GetParam2(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1A50 (#10978)
+//1.14d: 0x00644500
 int __stdcall SKILLS_GetParam3(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -2186,6 +2272,7 @@ int __stdcall SKILLS_GetParam3(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1A80 (#10979)
+//1.14d: 0x00644530
 int __stdcall SKILLS_GetParam4(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -2194,6 +2281,7 @@ int __stdcall SKILLS_GetParam4(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1AB0 (#10980)
+//1.14d: 0x00644560
 void __stdcall SKILLS_SetParam1(D2SkillStrc* pSkill, int nPar1)
 {
 	D2_ASSERT(pSkill);
@@ -2202,6 +2290,7 @@ void __stdcall SKILLS_SetParam1(D2SkillStrc* pSkill, int nPar1)
 }
 
 //D2Common.0x6FDB1AE0 (#10981)
+//1.14d: 0x006445A0
 void __stdcall SKILLS_SetParam2(D2SkillStrc* pSkill, int nPar2)
 {
 	D2_ASSERT(pSkill);
@@ -2210,6 +2299,7 @@ void __stdcall SKILLS_SetParam2(D2SkillStrc* pSkill, int nPar2)
 }
 
 //D2Common.0x6FDB1B10 (#10982)
+//1.14d: 0x006445E0
 void __stdcall SKILLS_SetParam3(D2SkillStrc* pSkill, int nPar3)
 {
 	D2_ASSERT(pSkill);
@@ -2218,6 +2308,7 @@ void __stdcall SKILLS_SetParam3(D2SkillStrc* pSkill, int nPar3)
 }
 
 //D2Common.0x6FDB1B40 (#10983)
+//1.14d: 0x00644620
 void __stdcall SKILLS_SetParam4(D2SkillStrc* pSkill, int nPar4)
 {
 	D2_ASSERT(pSkill);
@@ -2226,6 +2317,7 @@ void __stdcall SKILLS_SetParam4(D2SkillStrc* pSkill, int nPar4)
 }
 
 //D2Common.0x6FDB1B70 (#10984)
+//1.14d: 0x00644660
 void __stdcall SKILLS_SetFlags(D2SkillStrc* pSkill, int nFlags)
 {
 	D2_ASSERT(pSkill);
@@ -2234,6 +2326,7 @@ void __stdcall SKILLS_SetFlags(D2SkillStrc* pSkill, int nFlags)
 }
 
 //D2Common.0x6FDB1BA0 (#10985)
+//1.14d: 0x006446A0
 int __stdcall SKILLS_GetFlags(D2SkillStrc* pSkill)
 {
 	if (pSkill)
@@ -2246,6 +2339,7 @@ int __stdcall SKILLS_GetFlags(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB1BC0 (#10986)
+//1.14d: 0x00644710
 int __stdcall SKILLS_GetRequiredLevel(int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -2259,6 +2353,7 @@ int __stdcall SKILLS_GetRequiredLevel(int nSkillId)
 }
 
 //D2Common.0x6FDB1C00 (#10987)
+//1.14d: 0x00644750
 int __stdcall SKILLS_GetRequiredLevelBasedOnCurrent(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -2290,6 +2385,7 @@ int __stdcall SKILLS_GetRequiredLevelBasedOnCurrent(D2UnitStrc* pUnit, int nSkil
 }
 
 //D2Common.0x6FDB1C80 (#10988)
+//1.14d: 0x006447D0
 BOOL __stdcall SKILLS_CheckRequiredSkills(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillsTxt* pReqSkillSkillsTxtRecord = NULL;
@@ -2358,6 +2454,7 @@ BOOL __stdcall SKILLS_CheckRequiredSkills(D2UnitStrc* pUnit, int nSkillId)
 }
 
 //D2Common.0x6FDB1F80
+//1.14d: 0x006439B0
 D2SkillStrc* __fastcall SKILLS_GetSkill(D2UnitStrc* pUnit, int nSkillId, D2UnitGUID nOwnerGUID)
 {
 	D2SkillStrc* pSkill = NULL;
@@ -2378,6 +2475,7 @@ D2SkillStrc* __fastcall SKILLS_GetSkill(D2UnitStrc* pUnit, int nSkillId, D2UnitG
 }
 
 //D2Common.0x6FDB1FC0 (#10989)
+//1.14d: 0x00644920
 BOOL __stdcall SKILLS_CheckRequiredAttributes(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -2403,6 +2501,7 @@ BOOL __stdcall SKILLS_CheckRequiredAttributes(D2UnitStrc* pUnit, int nSkillId)
 }
 
 //D2Common.0x6FDB2110 (#10999)
+//1.14d: 0x006449F0
 int __stdcall SKILLS_GetToHitFactor(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -2426,6 +2525,7 @@ int __stdcall SKILLS_GetToHitFactor(D2UnitStrc* pUnit, int nSkillId, int nSkillL
 }
 
 //D2Common.0x6FDB21E0 (#11000)
+//1.14d: 0x00644AA0
 int __stdcall SKILLS_GetHighestSkillLevelById(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillStrc* pSkill = NULL;
@@ -2443,6 +2543,7 @@ int __stdcall SKILLS_GetHighestSkillLevelById(D2UnitStrc* pUnit, int nSkillId)
 }
 
 //D2Common.0x6FDB2280 (#11001)
+//1.14d: 0x00644B10
 int __stdcall SKILLS_GetManaCosts(int nSkillId, int nSkillLevel)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -2456,6 +2557,7 @@ int __stdcall SKILLS_GetManaCosts(int nSkillId, int nSkillLevel)
 }
 
 //D2Common.0x6FDB22E0
+//1.14d: 0x00644B70
 int __fastcall SKILLS_CalculateDamageBonusByLevel(int nLevel, int* pLevelDamage)
 {
 	if (nLevel > 1 && pLevelDamage)
@@ -2487,6 +2589,7 @@ int __fastcall SKILLS_CalculateDamageBonusByLevel(int nLevel, int* pLevelDamage)
 }
 
 //D2Common.0x6FDB2390 (#11002)
+//1.14d: 0x00647BC0
 int __stdcall SKILLS_GetMinPhysDamage(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel, BOOL a4)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -2541,7 +2644,7 @@ int __stdcall SKILLS_GetMinPhysDamage(D2UnitStrc* pUnit, int nSkillId, int nSkil
 
 				if (nBonus)
 				{
-					nDamage += nDamage * nBonus / 100;
+					nDamage += DATATBLS_ApplyRatio(nDamage, nBonus, 100);
 				}
 			}
 
@@ -2553,6 +2656,7 @@ int __stdcall SKILLS_GetMinPhysDamage(D2UnitStrc* pUnit, int nSkillId, int nSkil
 }
 
 //D2Common.0x6FDB25D0 (#11003)
+//1.14d: 0x00647D00
 int __stdcall SKILLS_GetMaxPhysDamage(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel, BOOL a4)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -2608,7 +2712,7 @@ int __stdcall SKILLS_GetMaxPhysDamage(D2UnitStrc* pUnit, int nSkillId, int nSkil
 
 				if (nBonus)
 				{
-					nDamage += nDamage * nBonus / 100;
+					nDamage += DATATBLS_ApplyRatio(nDamage, nBonus, 100);
 				}
 			}
 
@@ -2620,6 +2724,7 @@ int __stdcall SKILLS_GetMaxPhysDamage(D2UnitStrc* pUnit, int nSkillId, int nSkil
 }
 
 //D2Common.0x6FDB2810 (#11004)
+//1.14d: 0x00644D50
 int __stdcall SKILLS_GetMinElemDamage(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel, BOOL a4)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -2638,7 +2743,7 @@ int __stdcall SKILLS_GetMinElemDamage(D2UnitStrc* pUnit, int nSkillId, int nSkil
 
 			if (nBonus)
 			{
-				nDamage += nDamage * nBonus / 100;
+				nDamage += DATATBLS_ApplyRatio(nDamage, nBonus, 100);
 			}
 		}
 
@@ -2654,6 +2759,7 @@ int __stdcall SKILLS_GetMinElemDamage(D2UnitStrc* pUnit, int nSkillId, int nSkil
 }
 
 //D2Common.0x6FDB29D0
+//1.14d: 0x00644C90
 int __fastcall SKILLS_CalculateMasteryBonus(D2UnitStrc* pUnit, int nElemType, int nSrcDamage)
 {
 	int32_t statId = 0;
@@ -2682,6 +2788,7 @@ int __fastcall SKILLS_CalculateMasteryBonus(D2UnitStrc* pUnit, int nElemType, in
 }
 
 //D2Common.0x6FDB2B00 (#11005)
+//1.14d: 0x00644E40
 int __stdcall SKILLS_GetMaxElemDamage(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel, BOOL a4)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -2700,7 +2807,7 @@ int __stdcall SKILLS_GetMaxElemDamage(D2UnitStrc* pUnit, int nSkillId, int nSkil
 
 			if (nBonus)
 			{
-				nDamage += nDamage * nBonus / 100;
+				nDamage += DATATBLS_ApplyRatio(nDamage, nBonus, 100);
 			}
 		}
 
@@ -2716,6 +2823,7 @@ int __stdcall SKILLS_GetMaxElemDamage(D2UnitStrc* pUnit, int nSkillId, int nSkil
 }
 
 //D2Common.0x6FDB2CA0 (#11006)
+//1.14d: 0x00644F20
 int __stdcall SKILLS_GetElementalLength(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel, BOOL bUnused)
 {
 	D2_MAYBE_UNUSED(bUnused);
@@ -2754,7 +2862,7 @@ int __stdcall SKILLS_GetElementalLength(D2UnitStrc* pUnit, int nSkillId, int nSk
 
 		if (nBonus)
 		{
-			nLength += nLength * nBonus / 100;
+			nLength += DATATBLS_ApplyRatio(nLength, nBonus, 100);
 		}
 	}
 
@@ -2762,6 +2870,7 @@ int __stdcall SKILLS_GetElementalLength(D2UnitStrc* pUnit, int nSkillId, int nSk
 }
 
 //D2Common.0x6FDB2E70 (#11239)
+//1.14d: 0x00645030
 int __stdcall SKILLS_Return0(int arg)
 {
 	REMOVE_LATER_Trace("SKILLS_Return0: Useless");
@@ -2769,6 +2878,7 @@ int __stdcall SKILLS_Return0(int arg)
 }
 
 //D2Common.0x6FDB2E80 (#11008)
+//1.14d: 0x00645040
 int __stdcall SKILLS_GetClassIdFromSkillId(int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -2782,6 +2892,7 @@ int __stdcall SKILLS_GetClassIdFromSkillId(int nSkillId)
 }
 
 //D2Common.0x6FDB2EC0 (#11010)
+//1.14d: 0x00645080
 BOOL __stdcall SKILLS_IsPlayerClassSkill(int nSkillId, int* pPlayerClass)
 {
 	D2_ASSERT(pPlayerClass);
@@ -2791,6 +2902,7 @@ BOOL __stdcall SKILLS_IsPlayerClassSkill(int nSkillId, int* pPlayerClass)
 }
 
 //D2Common.0x6FDB2F40 (#11011)
+//1.14d: 0x006450F0
 int __stdcall SKILLS_GetQuantity(D2SkillStrc* pSkill)
 {
 	D2_ASSERT(pSkill);
@@ -2799,6 +2911,7 @@ int __stdcall SKILLS_GetQuantity(D2SkillStrc* pSkill)
 }
 
 //D2Common.0x6FDB2F70 (#11012)
+//1.14d: 0x00645120
 void __stdcall SKILLS_SetQuantity(D2SkillStrc* pSkill, int nQuantity)
 {
 	D2_ASSERT(pSkill);
@@ -2807,6 +2920,7 @@ void __stdcall SKILLS_SetQuantity(D2SkillStrc* pSkill, int nQuantity)
 }
 
 //D2Common.0x6FDB2FA0 (#11014)
+//1.14d: 0x00645190
 int __stdcall D2Common_11014_ConvertShapeShiftedMode(int nArrayIndex, int nMonsterId)
 {
 	int nMode = dword_6FDD2BD8[nArrayIndex];
@@ -2846,6 +2960,7 @@ int __stdcall D2Common_11014_ConvertShapeShiftedMode(int nArrayIndex, int nMonst
 }
 
 //D2Common.0x6FDB30A0 (#11013)
+//1.14d: 0x00645270
 void __stdcall D2COMMON_11013_ConvertMode(D2UnitStrc* pUnit, int* pType, int* pClass, int* pMode, const char* szFile, int nLine)
 {
 	if (!(pUnit && (pUnit->dwFlagEx & UNITFLAGEX_ISSHAPESHIFTED) && sgptDataTables->nTransformStates > 0))
@@ -2904,6 +3019,7 @@ void __stdcall D2COMMON_11013_ConvertMode(D2UnitStrc* pUnit, int* pType, int* pC
 }
 
 //D2Common.0x6FDB3290 (#11015)
+//1.14d: 0x00645390
 void __stdcall D2Common_11015(D2UnitStrc* pUnit, int a2, int nSkillId)
 {
 	D2SkillStrc* pSkill = NULL;
@@ -2943,6 +3059,7 @@ void __stdcall D2Common_11015(D2UnitStrc* pUnit, int a2, int nSkillId)
 }
 
 //D2Common.0x6FDB3340 (#11016)
+//1.14d: 0x00645460
 int __stdcall D2Common_11016(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 {
 	int nRange = 0;
@@ -2967,6 +3084,7 @@ int __stdcall D2Common_11016(D2UnitStrc* pUnit, D2SkillStrc* pSkill)
 
 //D2Common.0x6FDB33A0 (#11017)
 //TODO: Check name
+//1.14d: 0x00645510
 BOOL __stdcall D2COMMON_11017_CheckUnitIfConsumeable(D2UnitStrc* pUnit, int a2)
 {
 	D2MonStats2Txt* pMonStats2TxtRecord = NULL;
@@ -2984,6 +3102,7 @@ BOOL __stdcall D2COMMON_11017_CheckUnitIfConsumeable(D2UnitStrc* pUnit, int a2)
 }
 
 //D2Common.0x6FDB3480 (#11020)
+//1.14d: 0x00645630
 BOOL __stdcall D2Common_11020(D2UnitStrc* pUnit)
 {
 	if (SKILLS_CanUnitCorpseBeSelected(pUnit) && UNITS_IsSoftMonster(pUnit))
@@ -2995,6 +3114,7 @@ BOOL __stdcall D2Common_11020(D2UnitStrc* pUnit)
 }
 
 //D2Common.0x6FDB3520 (#11022)
+//1.14d: 0x006456D0
 BOOL __stdcall SKILLS_CanUnitCorpseBeSelected(D2UnitStrc* pUnit)
 {
 	D2MonStats2Txt* pMonStats2TxtRecord = NULL;
@@ -3012,6 +3132,7 @@ BOOL __stdcall SKILLS_CanUnitCorpseBeSelected(D2UnitStrc* pUnit)
 }
 
 //D2Common.0x6FDB35B0 (#11024)
+//1.14d: 0x00645720
 int __stdcall D2Common_11024(D2UnitStrc* pUnit, D2UnitStrc* pItem, D2SkillStrc* pSkill, int nType, BOOL* pHasThrowBonus)
 {
 	int nStatId = 0;
@@ -3072,6 +3193,7 @@ int __stdcall D2Common_11024(D2UnitStrc* pUnit, D2UnitStrc* pItem, D2SkillStrc* 
 }
 
 //D2Common.0x6FDB36D0 (#11023)
+//1.14d: 0x00645830
 int __stdcall SKILLS_GetWeaponMasteryBonus(D2UnitStrc* pUnit, D2UnitStrc* pItem, D2SkillStrc* pSkill, int nType)
 {
 	int nStatId = 0;
@@ -3126,6 +3248,7 @@ int __stdcall SKILLS_GetWeaponMasteryBonus(D2UnitStrc* pUnit, D2UnitStrc* pItem,
 }
 
 //D2Common.0x6FDB37B0 (#11032)
+//1.14d: 0x00647E00
 int __stdcall D2Common_11032(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel, int nType)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -3167,6 +3290,7 @@ int __stdcall D2Common_11032(D2UnitStrc* pUnit, int nSkillId, int nSkillLevel, i
 }
 
 //D2Common.0x6FDB3910 (#11025)
+//1.14d: 0x00645910
 BOOL __stdcall D2Common_11025(int nX1, int nY1, int nX2, int nY2, D2ActiveRoomStrc* pRoom, int a6)
 {
 	D2CoordStrc pCoords1 = {};
@@ -3181,6 +3305,7 @@ BOOL __stdcall D2Common_11025(int nX1, int nY1, int nX2, int nY2, D2ActiveRoomSt
 }
 
 //D2Common.0x6FDB3960 (#11026)
+//1.14d: 0x00645950
 BOOL __stdcall D2Common_11026(int nX, int nY, D2UnitStrc* pUnit, uint16_t nColMask)
 {
 	D2CoordStrc pCoords1 = {};
@@ -3195,6 +3320,7 @@ BOOL __stdcall D2Common_11026(int nX, int nY, D2UnitStrc* pUnit, uint16_t nColMa
 }
 
 //D2Common.0x6FDB3A10 (#11027)
+//1.14d: 0x006459F0
 int __stdcall SKILLS_GetShiftedManaCosts(int nSkillId, int nLevel)
 {
 	int nMana = SKILLS_GetManaCosts(nSkillId, nLevel) >> 8;
@@ -3209,15 +3335,17 @@ int __stdcall SKILLS_GetShiftedManaCosts(int nSkillId, int nLevel)
 }
 
 //D2Common.0x6FDB3A90 (#11028)
+//1.14d: 0x00645A70
 int __stdcall D2Common_11028(int a1)
 {
 	return 20 * (5 * a1 + 5) / (a1 + 8);
 }
 
 //D2Common.0x6FDB3AB0 (#11033)
+//1.14d: 0x00645B20
 int __stdcall D2Common_11033(int nLevel, int nParam, int nMax)
 {
-	int nValue = nParam + (nMax - nParam) * 110 * nLevel / (nLevel + 6) / 100;
+	int nValue = nParam + (nMax - nParam) * (110 * nLevel / (nLevel + 6)) / 100;
 
 	if (nValue > nMax)
 	{
@@ -3228,6 +3356,7 @@ int __stdcall D2Common_11033(int nLevel, int nParam, int nMax)
 }
 
 //D2Common.0x6FDB3B00 (#11034)
+//1.14d: 0x00645B70
 int __stdcall D2Common_11034(int nLevel, int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -3241,6 +3370,7 @@ int __stdcall D2Common_11034(int nLevel, int nSkillId)
 }
 
 //D2Common.0x6FDB3B90 (#11035)
+//1.14d: 0x00645BC0
 int __stdcall D2Common_11035(int nLevel, int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -3255,6 +3385,7 @@ int __stdcall D2Common_11035(int nLevel, int nSkillId)
 
 //D2Common.0x6FDB3C20 (#11036)
 //TODO: Check name
+//1.14d: 0x00645C10
 int __stdcall D2COMMON_11036_GetMonCurseResistanceSubtraction(int nLevel, int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -3268,6 +3399,7 @@ int __stdcall D2COMMON_11036_GetMonCurseResistanceSubtraction(int nLevel, int nS
 }
 
 //D2Common.0x6FDB3CB0 (#11037)
+//1.14d: 0x00645CA0
 BOOL __stdcall SKILLS_CheckIfCanLeapTo(D2UnitStrc* pUnit1, D2UnitStrc* pUnit2, int* pX, int* pY)
 {
 	D2ActiveRoomStrc* pRoom = NULL;
@@ -3337,6 +3469,7 @@ BOOL __stdcall SKILLS_CheckIfCanLeapTo(D2UnitStrc* pUnit1, D2UnitStrc* pUnit2, i
 
 //D2Common.0x6FDB3F60 (#11039)
 //TODO: Check name
+//1.14d: 0x00645F00
 int __stdcall D2COMMON_11039_CheckWeaponIsMissileBased(D2UnitStrc* pUnit, int* pValue)
 {
 	int nWeaponClass = 0;
@@ -3428,6 +3561,7 @@ int __stdcall D2COMMON_11039_CheckWeaponIsMissileBased(D2UnitStrc* pUnit, int* p
 }
 
 //D2Common.0x6FDB4020 (#11040)
+//1.14d: 0x00645FB0
 BOOL __stdcall SKILLS_IsEnhanceable(int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = DATATBLS_GetSkillsTxtRecord(nSkillId);
@@ -3441,6 +3575,7 @@ BOOL __stdcall SKILLS_IsEnhanceable(int nSkillId)
 }
 
 //D2Common.0x6FDB4070 (#11230)
+//1.14d: 0x00646020
 BOOL __stdcall SKILLS_RemoveTransformStatesFromShapeshiftedUnit(D2UnitStrc* pUnit)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -3469,6 +3604,7 @@ BOOL __stdcall SKILLS_RemoveTransformStatesFromShapeshiftedUnit(D2UnitStrc* pUni
 }
 
 //D2Common.0x6FDB4100 (#11041)
+//1.14d: 0x006460F0
 int __stdcall SKILLS_GetClassSkillId(int nClassId, int nPosition)
 {
 	if (nClassId >= 0 && nClassId < NUMBER_OF_PLAYERCLASSES && nPosition >= 0 && nPosition < sgptDataTables->nClassSkillCount[nClassId])
@@ -3480,6 +3616,7 @@ int __stdcall SKILLS_GetClassSkillId(int nClassId, int nPosition)
 }
 
 //D2Common.0x6FDB4150 (#11042)
+//1.14d: 0x00646140
 int __stdcall SKILLS_GetPlayerSkillCount(int nClassId)
 {
 	if (nClassId >= 0 && nClassId < 7)
@@ -3491,6 +3628,7 @@ int __stdcall SKILLS_GetPlayerSkillCount(int nClassId)
 }
 
 //D2Common.0x6FDB4180 (#11043)
+//1.14d: 0x00646170
 int __stdcall D2Common_11043(D2UnitStrc* pUnit)
 {
 	D2UnitStrc* pItem = NULL;
@@ -3515,6 +3653,7 @@ int __stdcall D2Common_11043(D2UnitStrc* pUnit)
 }
 
 //D2Common.0x6FDB41D0 (#11047)
+//1.14d: 0x006461D0
 int __stdcall SKILLS_GetConcentrationDamageBonus(D2UnitStrc* pUnit, int nSkillId)
 {
 	D2SkillsTxt* pSkillsTxtRecord = NULL;
@@ -3537,6 +3676,7 @@ int __stdcall SKILLS_GetConcentrationDamageBonus(D2UnitStrc* pUnit, int nSkillId
 }
 
 //D2Common.0x6FDB4260 (#11283)
+//1.14d: 0x00646280
 void __stdcall SKILLS_CalculateKickDamage(D2UnitStrc* pUnit, int* pMinDamage, int* pMaxDamage, int* pDamagePercent)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -3595,13 +3735,13 @@ void __stdcall SKILLS_CalculateKickDamage(D2UnitStrc* pUnit, int* pMinDamage, in
 					nStrBonus = ITEMS_GetStrengthBonus(pBoots);
 					if (nStrBonus)
 					{
-						nDamagePercent += nStrBonus * STATLIST_UnitGetStatValue(pUnit, STAT_STRENGTH, 0) / 100;
+						nDamagePercent += DATATBLS_ApplyRatio(STATLIST_UnitGetStatValue(pUnit, STAT_STRENGTH, 0), nStrBonus, 100);
 					}
 
 					nDexBonus = ITEMS_GetDexBonus(pBoots);
 					if (nDexBonus)
 					{
-						nDamagePercent += nDexBonus * STATLIST_UnitGetStatValue(pUnit, STAT_DEXTERITY, 0) / 100;
+						nDamagePercent += DATATBLS_ApplyRatio(STATLIST_UnitGetStatValue(pUnit, STAT_DEXTERITY, 0), nDexBonus, 100);
 					}
 
 					nDamagePercent += STATLIST_UnitGetStatValue(pUnit, STAT_DAMAGEPERCENT, 0);

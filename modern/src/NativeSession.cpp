@@ -1,6 +1,8 @@
+#include "ArchivePlan.h"
 // The game server session (NativeSession.h). No save data is written to disk unless a save path is given.
 // Startup/callback sequence follows tools/x64/D2GameHostTest.cpp.
 #include "NativeSession.h"
+#include "NativeVisualSequence.h"
 #include "NativeLink.h"
 #include <windows.h>
 #include <GAME/Game.h>
@@ -52,6 +54,14 @@ PendingCharacter gPending;
 std::filesystem::path gSaveOut; // where the character is written when the game saves it (empty: nowhere)
 std::FILE* gLog = stderr;
 int gTransactionToken = 77;
+
+// A mod can go past what the helper protocol carries (NativeProtocol.h); the rest is dropped. Says so once per kind.
+void reportDropped(const char* what, uint32_t limit)
+{
+    static std::set<std::string> reported;
+    if (reported.insert(what).second)
+        std::fprintf(gLog, "Helper protocol limit: more than %u %s, the rest is not shown (NativeProtocol.h)\n", limit, what);
+}
 
 void __cdecl cbLog(int32_t level, const char* message)
 {
@@ -134,7 +144,7 @@ int32_t __fastcall cbFindToken(const char* name, int32_t token, WORD gameId, cha
     *a7 = 0;
     return 1;
 }
-void __fastcall cbUnlock(uint32_t*, const char* name, const char* account) { std::fprintf(gLog, "cb UnlockDatabaseCharacter %s %s\n", name, account); }
+void __fastcall cbUnlock(D2ClientInfoStrc**, const char* name, const char* account) { std::fprintf(gLog, "cb UnlockDatabaseCharacter %s %s\n", name, account); }
 void __fastcall cbRelock(D2ClientInfoStrc**, const char* name, const char* account)
 {
     std::fprintf(gLog, "cb RelockDatabaseCharacter %s %s\n", name, account);
@@ -150,8 +160,8 @@ void __fastcall cbGameInfo(WORD gameId, const char* name, int32_t classId, int32
 {
     std::fprintf(gLog, "cb UpdateGameInformation game=%u %s class=%d level=%d\n", gameId, name, classId, level);
 }
-void __fastcall cbHandlePacket(void*, int32_t size) { std::fprintf(gLog, "cb HandlePacket size=%d\n", size); }
-uint32_t __fastcall cbSetGameData() { return 0; }
+void __fastcall cbGetGameServerInfo(D2GameServerInfoExStrc*, int32_t size) { std::fprintf(gLog, "cb GetGameServerInfo size=%d\n", size); }
+D2ClientInfoStrc* __fastcall cbCreateClientInfo() { return nullptr; }
 
 // Packets D2Game sent to the player, each with a two-byte length (the client reads them for sounds, stores and the like).
 std::map<int32_t,std::vector<uint8_t>> gServerLogs; // by client
@@ -192,10 +202,8 @@ public:
         (void)storm;useGameData(gameDir); // shared with the level loader, which may have loaded them already
 #else
         auto open=ordinal<BOOL(__stdcall*)(const char*,int,int,void**)>(storm,266);
-        auto patch=gameDir/L"D2SE/CORES/1.10f/Patch_D2.mpq";
-        const fs::path paths[]={fs::exists(patch)?patch:gameDir/L"Patch_D2.mpq",gameDir/L"d2exp.mpq",gameDir/L"d2data.mpq",gameDir/L"d2char.mpq",gameDir/L"d2sfx.mpq"};
-        int priority=5000;
-        for(const auto& path:paths){void* h=nullptr;if(fs::exists(path)&&!open(path.string().c_str(),priority,2,&h))throw std::runtime_error("Archive mount failed");priority-=1000;}
+        const auto paths=archivePlan(gameDir);
+        for(size_t i=0;i<paths.size();++i){void* h=nullptr;if(!open(paths[i].string().c_str(),archivePriority(i),2,&h))throw std::runtime_error("Archive mount failed: "+paths[i].string());}
         ordinal<void(__stdcall*)(void*,int,int)>(common_,10576)(nullptr,1,1);
 #endif
         auto game=game_;
@@ -284,7 +292,7 @@ private:
 #pragma pack(pop)
         join.client=client;
         join.packet.nHeader=0x67;join.packet.nTokenId=0x1234+client;join.packet.nGameId=gameId_;
-        join.packet.nPlayerClass=save[0x28];join.packet.unk0x08=10;std::memcpy(join.packet.szClientName,save.data()+0x14,16);
+        join.packet.nPlayerClass=save[0x28];join.packet.dwVersion=10;std::memcpy(join.packet.szClientName,save.data()+0x14,16);
         push_(0,&join,sizeof(join));for(int i=0;i<5;++i)step();
         if(!gPending.requested)throw std::runtime_error("Native host did not request character");
         std::printf("Native session: character requested client=%d\n",client);std::fflush(stdout);
@@ -302,8 +310,8 @@ private:
         callbacks.pfGetDatabaseCharacter=cbGetCharacter;callbacks.pfSaveDatabaseCharacter=cbSaveCharacter;
         callbacks.pfServerLogMessage=cbLog;callbacks.pfEnterGame=cbEnterGame;callbacks.pfFindPlayerToken=cbFindToken;
         callbacks.pfUnlockDatabaseCharacter=cbUnlock;callbacks.pfUpdateCharacterLadder=cbLadder;
-        callbacks.pfUpdateGameInformation=cbGameInfo;callbacks.pfHandlePacket=cbHandlePacket;
-        callbacks.pfSetGameData=cbSetGameData;callbacks.pfRelockDatabaseCharacter=cbRelock;
+        callbacks.pfUpdateGameInformation=cbGameInfo;callbacks.pfGetGameServerInfo=cbGetGameServerInfo;
+        callbacks.pfCreateClientInfo=cbCreateClientInfo;callbacks.pfRelockDatabaseCharacter=cbRelock;
         ordinal<void(__stdcall*)(D2ServerCallbackFunctions*)>(game,10023)(&callbacks);
         // Kept for the rest of the process: D2Game holds on to them.
         static auto* table=new D2GameDataTableStrc;static auto* list=new int[64]{};
@@ -403,10 +411,10 @@ void GameSession::describe(Reply& output,int32_t client) {
     // Test hook: D2MODERN_TEST_DIE=N kills the player on tick N (the death screen and respawn).
     if(const char* die=std::getenv("D2MODERN_TEST_DIE");die&&*die&&ticks==uint32_t(std::atoi(die)))named<void(__cdecl*)(D2UnitStrc*)>(game,"D2GameHost_Kill")(unit);
     D2GameInfoStrc gameInfo{};ordinal<BOOL(__stdcall*)(uint16_t,D2GameInfoStrc*)>(game,10014)(gameId,&gameInfo);
-    // A unit's states (states.txt rows 0..191: auras, curses, armours...) as bits (D2Common STATES_CheckState).
+    // A unit's states (states.txt rows 0..255: auras, curses, armours...) as bits (D2Common STATES_CheckState).
     auto statesOf=[&](D2UnitStrc* who,uint32_t* out){
         auto check=ordinal<BOOL(__stdcall*)(D2UnitStrc*,int)>(common,10487);
-        for(int s=0;s<192;++s)if(check(who,s))out[s>>5]|=1u<<(s&31);
+        for(int s=0;s<256;++s)if(check(who,s))out[s>>5]|=1u<<(s&31);
     };
     // A sequence (Whirlwind, Charge, Zeal, Leap...): D2Game counts the mode from its start frame (nSeqCurrentFramePrecise
     // = dwGameFrame << 8 when the mode starts, moved by rewinds) and steps it by dwSeqSpeed a game frame from the frame
@@ -508,7 +516,7 @@ void GameSession::describe(Reply& output,int32_t client) {
         constexpr uint32_t light=uint32_t('l')|(uint32_t('i')<<8)|(uint32_t('t')<<16);
         for(int i=0;i<16;++i)components[i]=(i>=5&&i<=7)?0:light;
         if(!who->pInventory)return;
-        for(int location:{1,3,4,5}) { // head, torso, active right/left hand
+        for(int location:{1,3}) { // head, torso
             auto item=ordinal<D2UnitStrc*(__stdcall*)(D2InventoryStrc*,int)>(common,10257)(who->pInventory,location);
             if(!item)continue;
             uint8_t color=0;
@@ -533,6 +541,18 @@ void GameSession::describe(Reply& output,int32_t client) {
                 }
             }
         }
+        // The hands by layer, as the composit picks them (INVENTORY_GetCompositItem): the left-click weapon on RH, a second
+        // weapon on LH, a shield on SH. UNITS_GetItemComponentId (the 0x9C packet's component) says LH for a Barbarian's or
+        // Assassin's shield, where their COFs have only an SH layer, so the shield was never drawn.
+        for(int component:{5,6,7}) {
+            auto item=ordinal<D2UnitStrc*(__stdcall*)(D2InventoryStrc*,int)>(common,10259)(who->pInventory,component);
+            if(!item)continue;
+            uint8_t color=0;
+            const bool colored=ordinal<uint8_t*(__stdcall*)(D2UnitStrc*,D2UnitStrc*,uint8_t*,int)>(common,10829)(who,item,&color,0)!=nullptr;
+            components[component]=ordinal<uint32_t(__stdcall*)(D2UnitStrc*)>(common,10747)(item)&0xffffff;
+            if(colored)coloredComponents|=1u<<component;
+            if(colored&&componentTrans&&componentColor)colorOf(who,item,0,componentTrans[component],componentColor[component]);
+        }
     };
     lookOf(unit,int(info.nClassId),output.weaponClass,output.components,output.coloredComponents,output.componentTrans,output.componentColor);
     // Holy Shield (state 101) with a shield in hand: the shield is drawn from its own glowing art, token "hsh", as D2Client
@@ -550,12 +570,19 @@ void GameSession::describe(Reply& output,int32_t client) {
             if(!other||!other->pDynamicPath)continue;
             Unit u;u.guid=uint32_t(guid);u.classId=uint32_t(other->dwClassId);u.mode=other->dwAnimMode;
             u.direction=other->pDynamicPath->nDirection;u.animSpeed=uint32_t(other->wAnimSpeed);
+            // Monster SQ is not a COF: D2Common's MonSeq table selects the actual
+            // mode/frame (UNITS_InitializeSequence / UNITS_StopSequence). Keep
+            // the authoritative sequence state instead of drawing neutral art.
+            if(other->dwAnimMode==MONMODE_SEQUENCE&&other->pAnimSeq) {
+                u.sequenceMode=uint8_t(other->dwSeqMode);
+                u.sequenceFrame=uint8_t(other->nSeqCurrentFramePrecise>>8);
+            }
             u.life=statValue(other,6,0)>>8;u.maxLife=statValue(other,7,0)>>8;statesOf(other,u.states);u.hitClass=uint8_t(other->dwLastHitClass);
             if(std::getenv("D2MODERN_STAT_LOG")) {
                 // Test hook: a monster's states changed (a curse starts or ends): the stats the curses change, as the game holds
                 // them (physical/fire/lightning/cold/poison resistance, damage %, velocity %, attack rate).
-                static std::map<int32_t,std::pair<std::array<uint32_t,6>,std::string>> seen;
-                std::array<uint32_t,6> now{};std::copy(std::begin(u.states),std::end(u.states),now.begin());
+                static std::map<int32_t,std::pair<std::array<uint32_t,8>,std::string>> seen;
+                std::array<uint32_t,8> now{};std::copy(std::begin(u.states),std::end(u.states),now.begin());
                 std::ostringstream line;
                 line<<"resist "<<statValue(other,STAT_DAMAGERESIST,0)<<"/"<<statValue(other,STAT_FIRERESIST,0)<<"/"<<statValue(other,STAT_LIGHTRESIST,0)
                     <<"/"<<statValue(other,STAT_COLDRESIST,0)<<"/"<<statValue(other,STAT_POISONRESIST,0)<<", damage% "<<statValue(other,STAT_DAMAGEPERCENT,0)
@@ -563,7 +590,7 @@ void GameSession::describe(Reply& output,int32_t client) {
                     <<", defense "<<ordinal<int(__stdcall*)(D2UnitStrc*)>(common,10431)(other)<<", to-hit% "<<statValue(other,STAT_ITEM_TOHIT_PERCENT,0);
                 if(const auto was=seen.find(guid);was!=seen.end()&&was->second.first!=now) {
                     std::cout<<"Monster "<<guid<<" (class "<<other->dwClassId<<") states";
-                    for(int s=0;s<192;++s)if(now[size_t(s>>5)]&(1u<<(s&31)))std::cout<<" "<<s;
+                    for(int s=0;s<256;++s)if(now[size_t(s>>5)]&(1u<<(s&31)))std::cout<<" "<<s;
                     std::cout<<": "<<was->second.second<<" -> "<<line.str()<<"\n";
                 }
                 seen[guid]={now,line.str()};
@@ -574,6 +601,8 @@ void GameSession::describe(Reply& output,int32_t client) {
                 if(type==UNIT_PLAYER) {
                     uint32_t colored=0;
                     u.lookClass=uint32_t(cls);u.lookMode=uint32_t(mode);lookOf(other,cls,u.look[0],&u.look[1],colored);
+                    u.sequenceMode=monsterVisualSequenceMode(other,u.sequenceMode,
+                        ordinal<void(__stdcall*)(D2UnitStrc*,int*,int*,int*,const char*,int)>(common,11013));
                 }
             }
             if(const auto* data=other->pMonsterData) {
@@ -700,6 +729,7 @@ void GameSession::describe(Reply& output,int32_t client) {
             for(int k=0;k<count;++k)
                 if(stats[k].nStat==71)bonus.set=stats[k].nValue; // what #10466 (list, 71) gives D2Client
                 else if(bonus.statCount<16)bonus.stats[bonus.statCount++]={stats[k].nStat,stats[k].nLayer,stats[k].nValue};
+                else reportDropped("set bonus stats",16);
         }
         // The set items the player has, by D2Client's rule (0x6FAE5990): set quality, inventory page 0, 3, 4 or none (the body)
         // and node page 1, 3 or 4 (#10695, #10719 and #10307 read these item data fields).
@@ -771,6 +801,7 @@ void GameSession::describe(Reply& output,int32_t client) {
                     D2StatStrc stats[64]{};
                     const int count=ordinal<int(__stdcall*)(D2StatListStrc*,D2StatStrc*,int)>(common,11243)(magic,stats,64);
                     for(int k=0;k<count&&out.statCount<maxItemStats;++k)out.stats[out.statCount++]={stats[k].nStat,stats[k].nLayer,stats[k].nValue};
+                    if(count>int(maxItemStats))reportDropped("item stats",maxItemStats);
                 }
                 // A set item's bonuses in force: the game gives the item a list for an item-set state when enough pieces are
                 // worn (the state bit itself stays off on the item), so the lists that exist are the bonuses in force.
@@ -856,6 +887,7 @@ void GameSession::describe(Reply& output,int32_t client) {
             Skill out;out.id=uint32_t(skillId(skill,__FILE__,__LINE__));out.level=skillLevel(unit,skill,1);out.baseLevel=skillLevel(unit,skill,0);out.quantity=skillQuantity(skill);
             if(out.level>0||out.baseLevel>0||out.quantity>0)output.skills[output.skillCount++]=out;
         }
+        if(unit->pSkills&&output.skillCount==maxSkills)reportDropped("skills (or exactly that many)",maxSkills);
     }
     // The character sheet, by the server's own rules without the dice: the damage roll of SUnitDmg.cpp (weapon or bare
     // hands, +damage, damage percent with strength/dexterity bonus and weapon mastery, min/max damage percent) and the attack

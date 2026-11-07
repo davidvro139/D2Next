@@ -1,3 +1,4 @@
+#include "ArchivePlan.h"
 // In-process build: the D2MOO functions the level loader and the game session use, by the export number they have in
 // the DLLs (source/*/definitions/*.1.10f.def), so NativeLink.h finds them the same way in both builds.
 #include "NativeLink.h"
@@ -65,6 +66,7 @@ const Export exports[]={
     {Library::D2Common,10088,address(&DUNGEON_GetDrlgFromAct)},
     {Library::D2Common,10120,address(&COLLISION_CheckMaskWithSizeXY)},
     {Library::D2Common,10257,address(&INVENTORY_GetItemFromBodyLoc)},
+    {Library::D2Common,10259,address(&INVENTORY_GetCompositItem)},
     {Library::D2Common,10262,address(&INVENTORY_GetCursorItem)},
     {Library::D2Common,10277,address(&INVENTORY_GetFirstItem)},
     {Library::D2Common,10304,address(&INVENTORY_GetNextItem)},
@@ -156,11 +158,11 @@ const Export exports[]={
     {Library::D2Game,10010,address(&GAME_SetInitSeed)},
     {Library::D2Game,10014,address(&GAME_GetGameInformation)},
     {Library::D2Game,10017,address(&GAME_GetPlayerUnitsInfo)},
-    {Library::D2Game,10018,address(&D2Game_10018)},
+    {Library::D2Game,10018,address(&GAME_GetUnitsInfoById)},
     {Library::D2Game,10023,address(&GAME_SetServerCallbackFunctions)},
     {Library::D2Game,10036,address(&D2GAME_10036_PLRSAVE_EnableSaveFileWriting)},
     {Library::D2Game,10039,address(&TASK_InitializeClock)},
-    {Library::D2Game,10046,address(&D2Game_10046)},
+    {Library::D2Game,10046,address(&GAME_Initialize)},
     {Library::D2Game,10047,address(&GAME_CreateNewEmptyGame)},
 };
 struct Named {Library library;const char* name;void* address;};
@@ -191,6 +193,9 @@ void* linkedNamed(Library library,const char* name) {
 }
 void useGameData(const std::filesystem::path& gameDirectory) {
     static std::once_flag once;
+    static std::filesystem::path mountedRoot;
+    static std::vector<ArchiveEntryIdentity> mountedIdentity;
+    const auto requestedRoot=std::filesystem::canonical(gameDirectory);
     std::call_once(once,[&] {
         namespace fs=std::filesystem;
 #ifndef _WIN32
@@ -199,26 +204,46 @@ void useGameData(const std::filesystem::path& gameDirectory) {
         static const std::string install=programDirectory().string(),logs=(programDirectory()/"Logs").string();
         static const std::string saves=[] {
             const auto directory=environmentPath("D2NEXT_SAVE_DIR");
-            return (directory.empty()?programDirectory()/"Save":directory).string();
+            const auto saves=modSaveDirectory(directory.empty()?programDirectory()/"Save":directory);
+            std::error_code error;fs::create_directories(saves,error);
+            return saves.string();
         }();
         FogHostConfig config{};config.structSize=sizeof(config);
         config.installPath=install.c_str();config.savePath=saves.c_str();config.logDirectory=logs.c_str();
         config.isExpansion=1;config.haltTerminatesProcess=1;
         FogHost_Configure(&config);
 #endif
-        // The 1.10f data tables are only in the patch archive; without it D2Common reads a table that is not there and crashes.
-        const auto core=gameFile(gameDirectory,"D2SE/CORES/1.10f/Patch_D2.mpq"),patch=gameFile(gameDirectory,"Patch_D2.mpq");
-        if(!fs::exists(core)&&!fs::exists(patch))
-            throw std::runtime_error("Patch_D2.mpq (the Diablo II 1.10f patch) is missing from "+gameDirectory.string()+". Copy it there from your Diablo II folder.");
-        const fs::path paths[]={fs::exists(core)?core:patch,gameFile(gameDirectory,"d2exp.mpq"),gameFile(gameDirectory,"d2data.mpq"),gameFile(gameDirectory,"d2char.mpq"),gameFile(gameDirectory,"d2sfx.mpq")};
-        int priority=5000;
-        for(const auto& path:paths) {
-            HSARCHIVE handle=nullptr;
-            if(fs::exists(path)&&!SFileOpenArchive(fs::absolute(path).string().c_str(),priority,2,&handle))
-                throw std::runtime_error("Cannot mount archive: "+path.string());
-            priority-=1000;
+        const auto paths=archivePlan(requestedRoot);
+        const auto identity=archivePlanIdentity(requestedRoot,paths);
+        // A mod's loose data folder, read by Storm before the archives (source/Storm/include/LooseFiles.h).
+        if(const auto mod=activeMod();!mod.empty())setEnvironment("D2NEXT_LOOSE_DIR",reinterpret_cast<const char*>((requestedRoot/"Mods"/mod).u8string().c_str()));
+        std::vector<HSARCHIVE> mounted;
+        try {
+            for(size_t i=0;i<paths.size();++i) {
+                HSARCHIVE handle=nullptr;
+                if(!SFileOpenArchive(fs::absolute(paths[i]).string().c_str(),archivePriority(i),2,&handle))
+                    throw std::runtime_error("Cannot mount archive: "+paths[i].string());
+                mounted.push_back(handle);
+            }
+        } catch(...) {
+            for(auto it=mounted.rbegin();it!=mounted.rend();++it)SFileCloseArchive(*it);
+            throw;
         }
+        // Vanilla: the compiled tables (data\global\excel\*.bin), as 1.10f loads them. A mod: its .txt files, as the
+        // game's -txt switch compiles them (the client reads the same .txt), so a mod needs no .bin. TableDump shows
+        // the .txt path gives the same tables as the game's .bin on vanilla data.
+        const bool modTables=!d2::activeMod().empty();
+        DATATBLS_LoadFromBin=modTables?FALSE:TRUE;
+        if(modTables)DATATBLS_ToggleCompileTxtFlag(FALSE);
         DATATBLS_LoadAllTxts(nullptr,1,1);
+        mountedRoot=requestedRoot;
+        mountedIdentity=identity;
     });
+    // D2Common tables are process-global. A later caller must not silently combine a new client's MPQs
+    // with tables still loaded from a previous installation (or, later, a different mod profile).
+    if(!std::filesystem::equivalent(mountedRoot,requestedRoot))
+        throw std::runtime_error("Cannot change game data directory after initialization; restart the process");
+    if(mountedIdentity!=archivePlanIdentity(requestedRoot,archivePlan(requestedRoot)))
+        throw std::runtime_error("Cannot change game archive plan after initialization; restart the process");
 }
 }
