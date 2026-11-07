@@ -910,6 +910,14 @@ void handleServerPackets() {
             }
         at+=length;
     }
+    // D2GSPacketSrv81: this player's hireling (its type, monstats class, owner, unit, seed, name string). On joining a game
+    // it can come before the player's own unit id is known; it is held until then instead of being dropped.
+    auto applyHireling=[&](const d2::HirelingOwnership& ownership) {
+        mercClass=ownership.classId;mercGuid=ownership.guid;mercName=ownership.name;
+        std::erase_if(pets,[&](const Pet& pet){return pet.guid==mercGuid;});
+        pets.push_back({ownership.type,mercClass,mercGuid,mercName});
+    };
+    heldHirelings.ready(worldView.nativeGuid,applyHireling);
     for(size_t at=0;at+2<=stream.size();) {
         const size_t length=size_t(stream[at])|(size_t(stream[at+1])<<8);at+=2;
         if(at+length>stream.size())break;
@@ -919,11 +927,8 @@ void handleServerPackets() {
             const uint32_t guid=u32(p+2);const uint16_t line=uint16_t(p[10]|(p[11]<<8));
             std::erase_if(overheadTexts,[&](const OverheadText& o){return o.guid==guid;});
             if(gameStrings)overheadTexts.push_back({guid,gameStrings->byId(line),worldView.tick+100});
-        } else if(length>=20&&p[0]==0x81&&u32(p+4)==worldView.nativeGuid) {
-            // D2GSPacketSrv81: this player's hireling (its type, monstats class, owner, unit, seed, name string).
-            mercClass=uint32_t(p[2]|(p[3]<<8));mercGuid=u32(p+8);mercName=uint32_t(p[16]|(p[17]<<8));
-            std::erase_if(pets,[&](const Pet& pet){return pet.guid==mercGuid;});
-            pets.push_back({p[1],mercClass,mercGuid,mercName});
+        } else if(length>=20&&p[0]==0x81) {
+            heldHirelings.receive(std::span(p,length),worldView.nativeGuid,applyHireling);
         } else if(length>=7&&p[0]==0x9B) {
             deadMercName=int16_t(p[1]|(p[2]<<8));resurrectCost=int32_t(u32(p+3));
         } else if(length>=13&&p[0]==0x7A&&(p[1]==0||u32(p+5)==worldView.nativeGuid)) {
@@ -1054,7 +1059,7 @@ void resetClientState() {
     worldView=d2::WorldSnapshot{};pendingCommands.clear();
     actionTargetUnit=0;actionTargetIsPoint=false;actionTargetPoint={};heldFacing=-1;
     castSkill=0;castStart=0;lastPlayerMode=255;walkStatus="Ready";
-    gameMenuPage=GameMenuPage::Closed;gameMenuRegions.clear();gameMenuSelection=0;gameMenuPressed=0;leaveToMainMenu=false;
+    gameMenuPage=GameMenuPage::Closed;gameMenuRegions.clear();gameMenuSelection=0;gameMenuPressed=0;leaveToMainMenu=false;heldHirelings.clear();
     gameAudio=nullptr;gameSounds=nullptr;gameStrings=nullptr;gameItems=nullptr;gameMissiles=nullptr;gameSkills=nullptr;gameUnitArt=nullptr;
     clientEffects.clear();clientLights.clear();gameOverlays=nullptr;gameStates=nullptr;unitOverlays.clear();objectClocks.clear();objectClasses.clear();openedObjectModes.clear();itemLabelUntil.clear();
     objectPicks.clear();hoveredObject=0;unitPicks.clear();hoveredUnit=0;afterTick=nullptr;

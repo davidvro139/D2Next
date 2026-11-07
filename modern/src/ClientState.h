@@ -2,6 +2,7 @@
 // shared by input, rendering and the game loop. The window and its input come through Platform.h.
 #pragma once
 #include "Assets.h"
+#include "HirelingPackets.h"
 #include "Navigation.h"
 #include "Occlusion.h"
 #include "Backend.h"
@@ -225,6 +226,7 @@ struct OverheadText {uint32_t guid=0;std::string text;uint64_t until=0;};
 inline std::vector<OverheadText> overheadTexts;
 // The player's mercenary (packet 0x81: its native id, monstats class and name string), 0 none.
 inline uint32_t mercGuid=0,mercClass=0,mercName=0;
+inline d2::HirelingPackets heldHirelings; // 0x81 packets that came before the player's own unit id, cleared at session reset
 // A dead hireling the hiring NPCs can bring back (packet 0x9B: its name string, -1 none, and the gold it costs).
 inline int32_t deadMercName=-1,resurrectCost=0;
 // The player's pets in the order they came (packets 0x7A add/remove, 0x81 a mercenary): pettype.txt row, monstats class, native
