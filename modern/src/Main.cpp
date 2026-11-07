@@ -1,5 +1,6 @@
 // D2Next: startup (arguments, game data, the menus), the game loop, and the scripted test runs.
 #include "Renderer.h"
+#include "HeroCryState.h"
 #include "NativeProtocol.h"
 #include "SkillVisuals.h"
 #include "NpcTopics.h"
@@ -876,13 +877,14 @@ static int run(int argc,wchar_t** argv) {
                     static unsigned swing=0;audio->effect(swings[swing++%3]);
                 }
                 // The character's own cries: hit (get-hit mode 4, sounds.txt <class>_hit_1-5) and death (mode 0, <class>_death_1-3).
-                static uint8_t heroModeBefore=255;static unsigned cry=0;
-                if(p.mode!=heroModeBefore&&characterClass>=0&&characterClass<7&&(p.mode==4||(p.mode==0&&heroModeBefore!=255))) {
+                // Forgets the last mode while there is no hero (between games), so a new game neither replays nor misses a cry.
+                static d2::HeroCryState heroCry;static unsigned cry=0;
+                const auto cryEvent=heroCry.observe(p.mode,worldView.vitals.maxLife>0&&characterClass>=0&&characterClass<7);
+                if(cryEvent!=d2::HeroCry::None) {
                     static const char* heroes[]={"amazon","sorceress","necromancer","paladin","barbarian","druid","assassin"};
-                    const bool death=p.mode==0;
+                    const bool death=cryEvent==d2::HeroCry::Death;
                     play(std::string(heroes[characterClass])+(death?"_death_":"_hit_")+std::to_string(1+cry++%(death?3:5)));
                 }
-                heroModeBefore=p.mode;
                 // Missiles: their travel sound when they appear, their hit sound when one near the player ends (missiles.txt).
                 static std::map<int64_t,std::pair<uint32_t,d2::FixedPoint>> missilesBefore;
                 std::map<int64_t,std::pair<uint32_t,d2::FixedPoint>> missilesNow;
