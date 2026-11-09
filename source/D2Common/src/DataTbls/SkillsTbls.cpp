@@ -6,6 +6,7 @@
 #include <Storm.h>
 
 //D2Common.0x6FD498D0
+//1.14d: 0x00611930
 int __fastcall DATATBLS_MapSkillsTxtKeywordToNumber(char* szKey)
 {
 	if (0 == SStrCmpI(szKey, "min", 32))
@@ -44,6 +45,7 @@ int __fastcall DATATBLS_MapSkillsTxtKeywordToNumber(char* szKey)
 
 //D2Common.0x6FD49980
 //TODO: Find a name
+//1.14d: 0x006119E0
 int __fastcall sub_6FD49980(int nValue)
 {
 	return (nValue == 6) + 2;
@@ -51,6 +53,7 @@ int __fastcall sub_6FD49980(int nValue)
 
 //D2Common.0x6FD49990
 //TODO: Find a name
+//1.14d: 0x006119F0
 int __fastcall sub_6FD49990(char* szText, int* a2, int a3, int nKeywordNumber)
 {
 	D2TxtLinkStrc* pLinker = sgptDataTables->pSkillCalcLinker;
@@ -190,6 +193,7 @@ int __fastcall sub_6FD49990(char* szText, int* a2, int a3, int nKeywordNumber)
 }
 
 //D2Common.0x6FD49D20
+//1.14d: 0x00611BD0
 void __fastcall DATATBLS_SkillCalcLinker(char* pSrc, void* pRecord, int nOffset, int nPosition, int nTxtRow, int nTxtColumn)
 {
 	unsigned int nNewSize = 0;
@@ -256,6 +260,7 @@ void __fastcall DATATBLS_SkillCalcLinker(char* pSrc, void* pRecord, int nOffset,
 }
 
 //D2Common.0x6FD49E40
+//1.14d: 0x00611C70
 void __fastcall DATATBLS_SkillDescCalcLinker(char* pSrc, void* pRecord, int nOffset, int nPosition, int nTxtRow, int nTxtColumn)
 {
 	unsigned int nNewSize = 0;
@@ -322,8 +327,16 @@ void __fastcall DATATBLS_SkillDescCalcLinker(char* pSrc, void* pRecord, int nOff
 }
 
 //D2Common.0x6FD49F60
+//1.14d: 0x00613F80
 void __fastcall DATATBLS_LoadSkills_SkillDescTxt(HD2ARCHIVE hArchive)
 {
+#ifdef D2MOO_X64
+	// Reading .txt (a mod): the skill code just compiled is the one the records point into; keep it instead of
+	// writing it out and loading the archive's copy back.
+	const bool bKeepCompiledCode = sgptDataTables->bCompileTxt && !DATATBLS_LoadFromBin;
+#else
+	constexpr bool bKeepCompiledCode = false;
+#endif
 	D2PetTypeTxt* pPetTypeTxtRecord = NULL;
 	D2TxtLinkStrc* pSkillDescLinker = NULL;
 	D2TxtLinkStrc* pMonStatsLinker = NULL;
@@ -777,7 +790,7 @@ void __fastcall DATATBLS_LoadSkills_SkillDescTxt(HD2ARCHIVE hArchive)
 			}
 		}
 
-		if (sgptDataTables->bCompileTxt && sgptDataTables->pSkillsCode)
+		if (sgptDataTables->bCompileTxt && sgptDataTables->pSkillsCode && !bKeepCompiledCode)
 		{
 			wsprintfA(szFileName, "%s\\%s.bin", "DATA\\GLOBAL\\EXCEL", "skillscode");
 			fopen_s(&pSkillsCodeBin, szFileName, "wb");
@@ -792,11 +805,14 @@ void __fastcall DATATBLS_LoadSkills_SkillDescTxt(HD2ARCHIVE hArchive)
 
 	wsprintfA(szFileName, "%s\\%s%s", "DATA\\GLOBAL\\EXCEL", "skillscode", ".bin");
 	size_t dwSize;
-	sgptDataTables->pSkillsCode = (FOGASTNodeStrc*)ARCHIVE_ALLOC_BUFFER_AND_READ_FILE_TO_IT(hArchive, szFileName, &dwSize);
-	sgptDataTables->nSkillsCodeSizeEx = dwSize;
-	sgptDataTables->nSkillsCodeSize = dwSize;
+	if (!bKeepCompiledCode)
+	{
+		sgptDataTables->pSkillsCode = (FOGASTNodeStrc*)ARCHIVE_ALLOC_BUFFER_AND_READ_FILE_TO_IT(hArchive, szFileName, &dwSize);
+		sgptDataTables->nSkillsCodeSizeEx = dwSize;
+		sgptDataTables->nSkillsCodeSize = dwSize;
+	}
 
-	if (sgptDataTables->bCompileTxt && sgptDataTables->pSkillDescCode)
+	if (sgptDataTables->bCompileTxt && sgptDataTables->pSkillDescCode && !bKeepCompiledCode)
 	{
 		wsprintfA(szFileName, "%s\\%s.bin", "DATA\\GLOBAL\\EXCEL", "skilldesccode");
 		fopen_s(&pSkillDescCodeBin, szFileName, "wb");
@@ -809,9 +825,12 @@ void __fastcall DATATBLS_LoadSkills_SkillDescTxt(HD2ARCHIVE hArchive)
 	}
 
 	wsprintfA(szFileName, "%s\\%s%s", "DATA\\GLOBAL\\EXCEL", "skilldesccode", ".bin");
-	sgptDataTables->pSkillDescCode = (FOGASTNodeStrc*)ARCHIVE_ALLOC_BUFFER_AND_READ_FILE_TO_IT(hArchive, szFileName, &dwSize);
-	sgptDataTables->nSkillDescCodeSizeEx = dwSize;
-	sgptDataTables->nSkillDescCodeSize = dwSize;
+	if (!bKeepCompiledCode)
+	{
+		sgptDataTables->pSkillDescCode = (FOGASTNodeStrc*)ARCHIVE_ALLOC_BUFFER_AND_READ_FILE_TO_IT(hArchive, szFileName, &dwSize);
+		sgptDataTables->nSkillDescCodeSizeEx = dwSize;
+		sgptDataTables->nSkillDescCodeSize = dwSize;
+	}
 
 	sgptDataTables->nClassSkillCount = (int*)D2_CALLOC_POOL(NULL, 7 * sizeof(int));
 
@@ -877,6 +896,7 @@ void __fastcall DATATBLS_LoadSkills_SkillDescTxt(HD2ARCHIVE hArchive)
 }
 
 //D2Common.0x6FD4E350
+//1.14d: 0x00617C30
 void __fastcall DATATBLS_UnloadSkills_SkillDescTxt()
 {
 	if (sgptDataTables->nClassSkillCount)

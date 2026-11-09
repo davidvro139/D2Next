@@ -1,5 +1,9 @@
 #include "Assets.h"
+#include "AssetTiming.h"
 #include <algorithm>
+#include <cstring>
+#include <map>
+#include <mutex>
 #include <stdexcept>
 
 namespace d2 {
@@ -14,9 +18,26 @@ uint32_t u32(std::span<const uint8_t> b,size_t at) {
 uint16_t u16(std::span<const uint8_t> b,size_t at) { range(b,at,2); return uint16_t(b[at]|uint16_t(b[at+1])<<8); }
 int32_t s16(std::span<const uint8_t> b,size_t at) { const auto v=u16(b,at); return v<32768?v:int32_t(v)-65536; }
 struct Block { int32_t x,y; uint16_t format; size_t at,length; };
-void pixel(Image& image,uint32_t x,uint32_t y,const Palette& palette,uint8_t color) {
+// A tile is decoded one byte a pixel (its palette index); drawn marks the pixels its blocks set.
+void pixel(Image& image,std::vector<uint8_t>& drawn,std::array<bool,256>& used,uint32_t x,uint32_t y,uint8_t color) {
     if(x>=image.width||y>=image.height) throw std::runtime_error("DT1 pixel outside tile");
-    std::copy(palette[color].begin(),palette[color].end(),image.rgba.begin()+(size_t(y)*image.width+x)*4);
+    const size_t at=size_t(y)*image.width+x;
+    image.indices[at]=color;drawn[at]=1;used[color]=true;
+}
+// The palette with one index made transparent (one the tile does not use), shared by all tiles that pick it.
+std::shared_ptr<const std::vector<std::array<uint8_t,4>>> colorsWithHole(const Palette& palette,uint8_t hole) {
+    static std::mutex lock;
+    static std::map<std::pair<uint64_t,uint8_t>,std::shared_ptr<const std::vector<std::array<uint8_t,4>>>> shared;
+    uint64_t hash=1469598103934665603ull;
+    for(const auto& c:palette)for(uint8_t v:c){hash^=v;hash*=1099511628211ull;}
+    std::lock_guard<std::mutex> hold(lock);
+    auto& slot=shared[{hash,hole}];
+    if(!slot) {
+        std::vector<std::array<uint8_t,4>> colors(palette.begin(),palette.end());
+        colors[hole]={0,0,0,0};
+        slot=std::make_shared<const std::vector<std::array<uint8_t,4>>>(std::move(colors));
+    }
+    return slot;
 }
 }
 uint32_t dt1TileCount(std::span<const uint8_t> b) {
@@ -28,6 +49,7 @@ uint32_t dt1TileCount(std::span<const uint8_t> b) {
     return count;
 }
 Tile decodeDt1(std::span<const uint8_t> b,const Palette& palette,uint32_t tileIndex) {
+    AssetTimer timing(AssetStage::Dt1);
     const auto count=dt1TileCount(b);
     if(tileIndex>=count) throw std::runtime_error("DT1 tile index out of range");
     const size_t h=u32(b,272)+size_t(tileIndex)*96;
@@ -58,14 +80,15 @@ Tile decodeDt1(std::span<const uint8_t> b,const Palette& palette,uint32_t tileIn
     const uint32_t width=right-left,height=bottom-top;
     if(width>4096||height>4096||uint64_t(width)*height>4*1024*1024) throw std::runtime_error("DT1 decoded tile exceeds image limit");
     tile.originX=left; tile.originY=top;
-    tile.image={width,height,Bytes(size_t(width)*height*4,0)};
+    tile.image={width,height};tile.image.indices.assign(size_t(width)*height,0);
+    std::vector<uint8_t> drawn(size_t(width)*height,0);std::array<bool,256> used{};
     constexpr int starts[]={14,12,10,8,6,4,2,0,2,4,6,8,10,12,14};
     constexpr int lengths[]={4,8,12,16,20,24,28,32,28,24,20,16,12,8,4};
     for(const auto& block:entries) {
         size_t p=block.at,end=p+block.length;
         if(block.format==1) {
             for(int y=0;y<15;++y) for(int x=0;x<lengths[y];++x)
-                pixel(tile.image,block.x-left+starts[y]+x,block.y-top+y,palette,b[p++]);
+                pixel(tile.image,drawn,used,block.x-left+starts[y]+x,block.y-top+y,b[p++]);
         } else {
             uint32_t x=0,y=0;
             while(p<end) {
@@ -74,9 +97,21 @@ Tile decodeDt1(std::span<const uint8_t> b,const Palette& palette,uint32_t tileIn
                 if(!skip&&!run) { x=0; if(++y>32) throw std::runtime_error("DT1 RLE exceeds block height"); continue; }
                 if(y>=32||skip>32-x||run>32-x-skip||run>end-p) throw std::runtime_error("Invalid DT1 RLE run");
                 x+=skip;
-                for(uint32_t j=0;j<run;++j) pixel(tile.image,block.x-left+x++,block.y-top+y,palette,b[p++]);
+                for(uint32_t j=0;j<run;++j) pixel(tile.image,drawn,used,block.x-left+x++,block.y-top+y,b[p++]);
             }
         }
+    }
+    // The pixels no block sets are see-through: they take a palette index the tile does not use, made transparent. A tile
+    // using all 256 colours (none in the game data) is kept as rgba.
+    const auto hole=std::find(used.begin(),used.end(),false);
+    if(hole!=used.end()) {
+        const uint8_t h=uint8_t(hole-used.begin());
+        for(size_t i=0;i<drawn.size();++i)if(!drawn[i])tile.image.indices[i]=h;
+        tile.image.colors=colorsWithHole(palette,h);
+    } else {
+        tile.image.rgba.assign(drawn.size()*4,0);
+        for(size_t i=0;i<drawn.size();++i)if(drawn[i])std::memcpy(&tile.image.rgba[i*4],palette[tile.image.indices[i]].data(),4);
+        Bytes{}.swap(tile.image.indices);
     }
     return tile;
 }
@@ -101,7 +136,8 @@ Image dt1Atlas(std::span<const uint8_t> bytes,const Palette& palette,uint32_t pa
         const uint32_t oy=(i/columns)*cellHeight+(cellHeight-image.height)/2;
         for(uint32_t y=0;y<image.height;++y) for(uint32_t x=0;x<image.width;++x) {
             const size_t src=(size_t(y)*image.width+x)*4,dst=(size_t(y+oy)*width+x+ox)*4;
-            std::copy_n(image.rgba.begin()+src,4,atlas.rgba.begin()+dst);
+            const auto c=image.color(src/4);
+            std::copy(c.begin(),c.end(),atlas.rgba.begin()+dst);
         }
     }
     return atlas;

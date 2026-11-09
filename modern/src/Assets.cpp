@@ -1,16 +1,26 @@
 #include "Assets.h"
+#include <iostream>
+#include <chrono>
+#include <ctime>
+#include "AssetTiming.h"
+#include "ArchivePlan.h"
 #include "ProgramPath.h"
 #include <StormLib.h>
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 
 namespace d2 {
-static bool accessiblePathExists(const std::filesystem::path& path) {
-    std::error_code error;
-    const bool exists=std::filesystem::exists(path,error);
-    if(error)throw std::runtime_error("Cannot access game file "+path.string()+": "+error.message());
-    return exists;
+Bytes Image::expanded() const {
+    if(indices.empty())return rgba;
+    Bytes out(indices.size()*4);
+    for(size_t i=0;i<indices.size();++i)std::copy_n((*colors)[indices[i]].begin(),4,out.begin()+i*4);
+    return out;
 }
 static uint32_t u32(std::span<const uint8_t> b, size_t offset) {
     if (offset > b.size() || b.size() - offset < 4) throw std::runtime_error("Truncated DC6 header");
@@ -36,6 +46,7 @@ std::array<int32_t,2> dc6FrameOffset(std::span<const uint8_t> b,uint32_t frame) 
     return {int32_t(u32(b,header+12)),int32_t(u32(b,header+16))};
 }
 Image decodeDc6(std::span<const uint8_t> b, const Palette& palette, uint32_t frame) {
+    AssetTimer timing(AssetStage::Dc6);
     const auto count=dc6FrameCount(b);
     if (frame >= count) throw std::runtime_error("DC6 frame index out of range");
     const size_t header = u32(b,24+size_t(frame)*4);
@@ -64,42 +75,167 @@ Image decodeDc6(std::span<const uint8_t> b, const Palette& palette, uint32_t fra
     if(row!=h) throw std::runtime_error("DC6 pixel stream ends before final scanline");
     return image;
 }
-Archives::Archives(const std::filesystem::path& root):root_(root) {
-    // Most specific archive first. Expansion data overrides base data.
-    std::vector<std::filesystem::path> paths;
-    const auto core=d2::gameFile(root,L"D2SE/CORES/1.10f/Patch_D2.mpq");
-    if(accessiblePathExists(core)) paths.push_back(core);
-    else if(accessiblePathExists(d2::gameFile(root,L"Patch_D2.mpq"))) paths.push_back(d2::gameFile(root,L"Patch_D2.mpq"));
-    // Then the sounds: effects, the NPCs' speech (d2xtalk the expansion's), the music (d2xmusic Act V's).
-    for(const auto* name : {L"d2exp.mpq", L"d2data.mpq", L"d2char.mpq", L"d2sfx.mpq", L"d2xtalk.mpq", L"d2speech.mpq", L"D2XVIDEO.MPQ", L"d2video.mpq",
-        L"d2xmusic.mpq", L"d2music.mpq"}) {
-        auto path=d2::gameFile(root,name);
-        if(accessiblePathExists(path)) paths.push_back(path);
+// A DC6 as an animation layer, laid out like decodeDcc's: directions in file order, each frame placed by its offset
+// (the offset's y is the frame's bottom edge, as in a DCC). Some monsters' COF layers are DC6 files (Diablo, Mephisto,
+// Tyrael, the Maggot Queen, Baal's clones and crabs).
+Animation decodeDc6Animation(std::span<const uint8_t> b,const Palette& palette) {
+    const auto count=dc6FrameCount(b);
+    Animation result{u32(b,16),u32(b,20),{}};
+    if(!result.directions||!result.framesPerDirection||result.directions>32)throw std::runtime_error("Invalid DC6 animation layout");
+    result.frames.reserve(count);
+    for(uint32_t f=0;f<count;++f) {
+        auto image=decodeDc6(b,palette,f);
+        const auto offset=dc6FrameOffset(b,f);
+        const int top=offset[1]-int(image.height);
+        result.frames.push_back(AnimationFrame{std::move(image),offset[0],top});
     }
+    return result;
+}
+Archives::Archives(const std::filesystem::path& root):root_(std::filesystem::absolute(root).lexically_normal()) {
+    const auto paths=archivePlan(root_);
+    identity_=archivePlanIdentity(root_,paths);
     try {
-        if(!accessiblePathExists(d2::gameFile(root,L"d2data.mpq"))) throw std::runtime_error("Game directory must contain d2data.mpq");
         for(const auto& path:paths) {
             HANDLE archive=nullptr;
             if(!SFileOpenArchive(path.c_str(),0,MPQ_OPEN_READ_ONLY,&archive))
                 throw std::runtime_error("Cannot open archive: "+path.string());
             handles_.push_back(archive);
         }
+        validateCurrent();
+        if(const auto mod=activeMod();!mod.empty())loose_=d2loose::Folder(root_/"Mods"/mod);
     } catch(...) { for(auto h:handles_) SFileCloseArchive(h); throw; }
 }
 Archives::~Archives() { for(auto h:handles_) SFileCloseArchive(h); }
+void Archives::validateCurrent() const {
+    if(identity_!=archivePlanIdentity(root_,archivePlan(root_)))
+        throw std::runtime_error("Game archives changed after opening; restart the process");
+}
+// This thread's CPU time in ms (profiling: a slow read that used little CPU was waiting).
+static long threadCpuMs() {
+#ifdef __ANDROID__
+    timespec t{};clock_gettime(CLOCK_THREAD_CPUTIME_ID,&t);return long(t.tv_sec*1000+t.tv_nsec/1000000);
+#else
+    return long(std::clock()*1000/CLOCKS_PER_SEC);
+#endif
+}
 Bytes Archives::read(const std::string& name,size_t maxSize) const {
-    for(auto archive:handles_) {
+    AssetTimer timing(AssetStage::ArchiveRead);
+    const auto* loose=loose_.find(name);
+    for(size_t i=loose?0:1;i<=handles_.size();++i) {
         HANDLE file=nullptr;
-        if(!SFileOpenFileEx(archive,name.c_str(),SFILE_OPEN_FROM_MPQ,&file)) continue;
+        if(i==0){if(!SFileOpenFileEx(nullptr,reinterpret_cast<const char*>(loose->u8string().c_str()),SFILE_OPEN_LOCAL_FILE,&file))continue;}
+        else if(!SFileOpenFileEx(handles_[i-1],name.c_str(),SFILE_OPEN_FROM_MPQ,&file)) continue;
         struct Close { HANDLE file; ~Close(){SFileCloseFile(file);} } close{file};
         DWORD high=0;
         const DWORD size=SFileGetFileSize(file,&high);
         if(high || size==SFILE_INVALID_SIZE || size>maxSize) throw std::runtime_error("Asset exceeds size limit: "+name);
         Bytes bytes(size); DWORD read=0;
+        const auto started=std::chrono::steady_clock::now();const auto cpuStarted=threadCpuMs();
         if(size && (!SFileReadFile(file,bytes.data(),size,&read,nullptr) || read!=size))
             throw std::runtime_error("Cannot read asset: "+name);
+        // Profiling: a read long enough to drop frames, by name.
+        if(assetTimingEnabled())if(const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count();ms>=15)
+            std::cout<<"Asset timing slow-read "<<ms<<" ms (cpu "<<threadCpuMs()-cpuStarted<<") "<<size<<" bytes "<<name<<std::endl;
         return bytes;
     }
     throw std::runtime_error("Asset not found in mounted MPQs: "+name);
+}
+Archives::Piecewise::~Piecewise() {if(file_)SFileCloseFile(file_);}
+Bytes Archives::Piecewise::read(uint32_t offset,uint32_t length) {
+    if(offset>=size_)return {};
+    length=std::min(length,size_-offset);
+    Bytes bytes(length);DWORD done=0;
+    SFileSetFilePointer(file_,LONG(offset),nullptr,FILE_BEGIN);
+    if(length&&(!SFileReadFile(file_,bytes.data(),length,&done,nullptr)||done!=length))bytes.resize(done);
+    return bytes;
+}
+std::unique_ptr<Archives::Piecewise> Archives::open(const std::string& name) const {
+    const auto* loose=loose_.find(name);
+    for(size_t i=loose?0:1;i<=handles_.size();++i) {
+        HANDLE file=nullptr;
+        if(i==0){if(!SFileOpenFileEx(nullptr,reinterpret_cast<const char*>(loose->u8string().c_str()),SFILE_OPEN_LOCAL_FILE,&file))continue;}
+        else if(!SFileOpenFileEx(handles_[i-1],name.c_str(),SFILE_OPEN_FROM_MPQ,&file))continue;
+        DWORD high=0;const DWORD size=SFileGetFileSize(file,&high);
+        if(high||size==SFILE_INVALID_SIZE){SFileCloseFile(file);continue;}
+        auto piece=std::make_unique<Piecewise>();piece->file_=file;piece->size_=size;
+        return piece;
+    }
+    return nullptr;
+}
+}
+namespace d2 {
+struct BackgroundReads::State {
+    std::filesystem::path root;
+    std::mutex lock;std::condition_variable wake;
+    std::deque<std::pair<const void*,Work>> wanted;
+    std::vector<std::pair<const void*,Done>> ready;
+    std::atomic<size_t> readyCount{0};
+    bool stop=false;
+    const void* running=nullptr; // the owner of the job being done
+    std::condition_variable finished;
+    std::thread thread;
+    void run() {
+        std::unique_ptr<Archives> archives;
+        for(;;) {
+            std::pair<const void*,Work> job;
+            {
+                std::unique_lock<std::mutex> hold(lock);
+                wake.wait(hold,[&]{return stop||!wanted.empty();});
+                if(stop)return;
+                job=std::move(wanted.front());wanted.pop_front();
+                running=job.first;
+            }
+            Done done;
+            try {if(!archives)archives=std::make_unique<Archives>(root);done=job.second(*archives);}
+            catch(const std::exception&) {done=nullptr;}
+            {
+                std::lock_guard<std::mutex> hold(lock);
+                ready.emplace_back(job.first,std::move(done));++readyCount;
+                running=nullptr;
+            }
+            finished.notify_all();
+        }
+    }
+};
+std::shared_ptr<BackgroundReads> BackgroundReads::shared(const std::filesystem::path& root) {
+    static std::weak_ptr<BackgroundReads> current;
+    auto reads=current.lock();
+    if(!reads){reads=std::make_shared<BackgroundReads>(root);current=reads;}
+    return reads;
+}
+BackgroundReads::BackgroundReads(std::filesystem::path root):state_(std::make_unique<State>()) {
+    state_->root=std::move(root);
+    state_->thread=std::thread([s=state_.get()]{s->run();});
+}
+BackgroundReads::~BackgroundReads() {
+    {std::lock_guard<std::mutex> hold(state_->lock);state_->stop=true;}
+    state_->wake.notify_all();state_->thread.join();
+}
+void BackgroundReads::queue(const void* owner,Work work) {
+    {std::lock_guard<std::mutex> hold(state_->lock);state_->wanted.emplace_back(owner,std::move(work));}
+    state_->wake.notify_one();
+}
+void BackgroundReads::forget(const void* owner) {
+    std::vector<std::pair<const void*,Done>> dropped; // destroyed outside the lock
+    std::deque<std::pair<const void*,Work>> droppedWork;
+    {
+        std::unique_lock<std::mutex> hold(state_->lock);
+        for(auto i=state_->wanted.begin();i!=state_->wanted.end();)
+            if(i->first==owner){droppedWork.push_back(std::move(*i));i=state_->wanted.erase(i);}else ++i;
+        state_->finished.wait(hold,[&]{return state_->running!=owner;});
+        for(auto i=state_->ready.begin();i!=state_->ready.end();)
+            if(i->first==owner){dropped.push_back(std::move(*i));i=state_->ready.erase(i);--state_->readyCount;}else ++i;
+    }
+}
+void BackgroundReads::pump(const void* owner) {
+    if(!state_->readyCount.load(std::memory_order_relaxed))return;
+    std::vector<Done> mine;
+    {
+        std::lock_guard<std::mutex> hold(state_->lock);
+        for(size_t i=0;i<state_->ready.size();)
+            if(state_->ready[i].first==owner){mine.push_back(std::move(state_->ready[i].second));state_->ready.erase(state_->ready.begin()+long(i));--state_->readyCount;}
+            else ++i;
+    }
+    for(auto& done:mine)if(done)done();
 }
 }

@@ -71,6 +71,10 @@ endif()
 # 3rd party dependencies
 add_subdirectory(external)
 
+# The 64-bit DLLs load each other by name: put them all in one folder (D2Next --native-town <folder> too).
+if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND BUILD_SHARED_LIBS AND NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+endif()
 add_subdirectory(source)
 
 #===========#

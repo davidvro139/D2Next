@@ -8,3 +8,6 @@ add_subdirectory(D2Net)
 add_subdirectory(D2Common)
 add_subdirectory(D2Game)
 
+add_subdirectory(TestDefinitions)
+add_subdirectory(TestUtilities)
+add_subdirectory(VisitorFramework)

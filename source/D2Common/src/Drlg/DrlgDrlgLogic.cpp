@@ -36,6 +36,7 @@ static void DRLGLOGIC_FreePointerGrid(void* pMemPool, D2DrlgPointerGridStrc* pGr
 }
 
 //D2Common.0x6FD76420
+//1.14d: 0x0066C6E0
 void __fastcall DRLGLOGIC_FreeDrlgCoordList(D2DrlgRoomStrc* pDrlgRoom)
 {
 
@@ -61,6 +62,7 @@ void __fastcall DRLGLOGIC_FreeDrlgCoordList(D2DrlgRoomStrc* pDrlgRoom)
 }
 
 //D2Common.0x6FD764A0
+//1.14d: 0x0066D110
 void __fastcall DRLGLOGIC_InitializeDrlgCoordList(D2DrlgRoomStrc* pDrlgRoom, D2DrlgGridStrc* pTileTypeGrid, D2DrlgGridStrc* pFloorGrid, D2DrlgGridStrc* pWallGrid)
 {
 	int nCellPositions[1024] = {};
@@ -113,7 +115,7 @@ void __fastcall DRLGLOGIC_InitializeDrlgCoordList(D2DrlgRoomStrc* pDrlgRoom, D2D
 			{
 				if (!pDrlgTileLink->bFloor)
 				{
-					for (D2DrlgTileDataStrc* pDrlgTileData = pDrlgTileLink->pMapTile; pDrlgTileData; pDrlgTileData = pDrlgTileData->unk0x20)
+					for (D2DrlgTileDataStrc* pDrlgTileData = pDrlgTileLink->pMapTile; pDrlgTileData; pDrlgTileData = pDrlgTileData->pNext)
 					{
 						if (DRLG_CheckLayer1ButNotWallObject(pDrlgTileData))
 						{
@@ -175,8 +177,11 @@ void __fastcall DRLGLOGIC_InitializeDrlgCoordList(D2DrlgRoomStrc* pDrlgRoom, D2D
 }
 
 //D2Common.0x6FD76830
+//1.14d: 0x0066C3D0
 void __fastcall DRLGLOGIC_SetTileGridFlags(D2UnkDrlgLogicStrc* a1, int nX, int nY, int a4)
 {
+	//1.10f: D2Common.0x6FDCE5C8
+	//1.14d: 0x006EEE14
 	static const D2CoordStrc stru_6FDCE5C8[] =
 	{
 		{ 1, 0 },
@@ -185,11 +190,32 @@ void __fastcall DRLGLOGIC_SetTileGridFlags(D2UnkDrlgLogicStrc* a1, int nX, int n
 		{ 0, -1 },
 	};
 
+	//D2Common.0x6FDCE5E8 (native indexed base is one element later)
+	//1.14d: 0x006EEE38
+#ifdef NO_BUG_FIX
+	// D2MOO: tile types 0 and 13 have class -1 in dword_6FDCE650, so the lookup below reaches up to five
+	// dwords in front of this table. The original reads whatever the linker placed there: the tail of
+	// stru_6FDCE5C8, and in 1.14d also the alignment dword after it. Those words are laid out here so the
+	// read is defined and returns the original values.
+	static const int dword_6FDCE5EC_WithPrefix[] =
+	{
+#if D2_VERSION_MAJOR >= 1 && D2_VERSION_MINOR >= 14
+		-1, 0, 0, -1, 0, //1.14d: 0x006EEE24..0x006EEE34
+#else
+		1, -1, 0, 0, -1, //D2Common.0x6FDCE5D4..0x6FDCE5E4
+#endif
+#else
 	static const int dword_6FDCE5EC[] =
 	{
+#endif
 		23, 0, 5, 21, 17, 15, 3, 0, 9, 7, 39, 0, 0, 5, 3, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 0
 	};
+#ifdef NO_BUG_FIX
+	const int* dword_6FDCE5EC = &dword_6FDCE5EC_WithPrefix[5];
+#endif
 
+	//1.10f: D2Common.0x6FDCE650
+	//1.14d: 0x006EEEA0
 	static const int dword_6FDCE650[] =
 	{
 		-1, 0, 1, 2, 2, 0, 1, 3, 0, 1, 0, 1, 4, -1, 4, 0, 0, 0, 0, 0
@@ -222,7 +248,14 @@ void __fastcall DRLGLOGIC_SetTileGridFlags(D2UnkDrlgLogicStrc* a1, int nX, int n
 			nIndex = DRLGGRID_GetGridEntry(a1->pTileTypeGrid, nPosX, nPosY);
 		}
 
-		const int nFlags = dword_6FDCE5EC[a4 + 5 * dword_6FDCE650[nIndex] + 1];
+		const int nClass = dword_6FDCE650[nIndex];
+#ifdef NO_BUG_FIX
+		const int nFlags = dword_6FDCE5EC[a4 + 5 * nClass + 1];
+#else
+		// D2MOO: class -1 (tile types 0 and 13) has no row in dword_6FDCE5EC. Such a wall has no orientation, so it
+		// opens to no neighbour: a seed (a4 == -1) gets a region of its own, a flood reaching it from a neighbour stops.
+		const int nFlags = nClass >= 0 ? dword_6FDCE5EC[a4 + 5 * nClass + 1] : (a4 == -1 ? 1 : 0);
+#endif
 		if (nFlags & 1)
 		{
 			DRLGGRID_AlterGridFlag(a1->field_4, nPosX, nPosY, a1->nFlags, FLAG_OPERATION_OR);
@@ -261,6 +294,7 @@ void __fastcall DRLGLOGIC_SetTileGridFlags(D2UnkDrlgLogicStrc* a1, int nX, int n
 }
 
 //D2Common.0x6FD769B0
+//1.14d: 0x0066D040
 void __fastcall sub_6FD769B0(D2DrlgRoomStrc* pDrlgRoom)
 {
 	for (int i = 0; i < pDrlgRoom->nRoomsNear; ++i)
@@ -290,6 +324,7 @@ void __fastcall sub_6FD769B0(D2DrlgRoomStrc* pDrlgRoom)
 }
 
 //D2Common.0x6FD76A90
+//1.14d: 0x0066CF60
 void __fastcall sub_6FD76A90(D2DrlgRoomStrc* pDrlgRoom1, D2DrlgRoomStrc* pDrlgRoom2, int nX, int nY)
 {
 	if (DRLGROOM_AreXYInsideCoordinatesOrOnBorder(&pDrlgRoom2->pDrlgCoord, nX, nY))
@@ -311,6 +346,7 @@ void __fastcall sub_6FD76A90(D2DrlgRoomStrc* pDrlgRoom1, D2DrlgRoomStrc* pDrlgRo
 }
 
 //D2Common.0x6FD76B90
+//1.14d: 0x0066C770
 void __fastcall sub_6FD76B90(D2DrlgRoomStrc* pDrlgRoom, int nIndex1, int nIndex2, BOOL bNode)
 {
 	if (pDrlgRoom->pLogicalRoomInfo ==nullptr || (pDrlgRoom->pLogicalRoomInfo->dwFlags & DRLGLOGIC_ROOMINFO_HAS_COORD_LIST))
@@ -360,6 +396,7 @@ BOOL __fastcall DRLG_CheckLayer1ButNotWallObject(D2DrlgTileDataStrc* pTileData)
 }
 
 //D2Common.0x6FD76C50
+//1.14d: 0x0066C9C0
 void __fastcall DRLGLOGIC_SetCoordListForTiles(D2DrlgRoomStrc* pDrlgRoom)
 {
 	if (pDrlgRoom->pTileGrid->pTiles.nWalls)
@@ -379,6 +416,7 @@ void __fastcall DRLGLOGIC_SetCoordListForTiles(D2DrlgRoomStrc* pDrlgRoom)
 }
 
 //D2Common.0x6FD76CF0
+//1.14d: 0x0066CA50
 void __fastcall DRLGLOGIC_AssignCoordListsForGrids(D2DrlgRoomStrc* pDrlgRoom, D2DrlgLogicalRoomInfoStrc* pDrlgCoordList, int nLists)
 {
 	DRLGLOGIC_InitPointerGrid(pDrlgRoom->pLevel->pDrlg->pMempool, &pDrlgCoordList->pIndexY, pDrlgRoom->nTileWidth + 1, pDrlgRoom->nTileHeight + 1);
@@ -482,6 +520,7 @@ void __fastcall DRLGLOGIC_AssignCoordListsForGrids(D2DrlgRoomStrc* pDrlgRoom, D2
 }
 
 //D2Common.0x6FD76F90
+//1.14d: 0x0066CCB0
 void __fastcall DRLGLOGIC_AllocCoordLists(D2DrlgRoomStrc* pDrlgRoom)
 {
 	D2DrlgLogicalRoomInfoStrc* pLogicalRoomInfo = D2_CALLOC_STRC_POOL(pDrlgRoom->pLevel->pDrlg->pMempool, D2DrlgLogicalRoomInfoStrc);
@@ -505,6 +544,7 @@ void __fastcall DRLGLOGIC_AllocCoordLists(D2DrlgRoomStrc* pDrlgRoom)
 }
 
 //D2Common.0x6FD77080
+//1.14d: 0x0066CE30
 int __fastcall DRLGLOGIC_GetRoomCoordListIndex(D2DrlgRoomStrc* pDrlgRoom, int nX, int nY)
 {
 	D2RoomCoordListStrc* pRoomCoordList = sub_6FD77110(pDrlgRoom, nX, nY);
@@ -518,6 +558,7 @@ int __fastcall DRLGLOGIC_GetRoomCoordListIndex(D2DrlgRoomStrc* pDrlgRoom, int nX
 }
 
 //D2Common.0x6FD77110
+//1.14d: 0x0066CEB0
 D2RoomCoordListStrc* __fastcall sub_6FD77110(D2DrlgRoomStrc* pDrlgRoom, int nX, int nY)
 {
 	D2_ASSERT(pDrlgRoom->pLogicalRoomInfo);
@@ -533,6 +574,7 @@ D2RoomCoordListStrc* __fastcall sub_6FD77110(D2DrlgRoomStrc* pDrlgRoom, int nX, 
 }
 
 //D2Common.0x6FD77190
+//1.14d: 0x0066CF30
 D2RoomCoordListStrc* __fastcall DRLGLOGIC_GetRoomCoordList(D2DrlgRoomStrc* pDrlgRoom)
 {
 	D2_ASSERT(pDrlgRoom->pLogicalRoomInfo);

@@ -37,7 +37,8 @@ std::wstring quote(const std::filesystem::path& path) {
 #endif
 class NativeGame final:public GameBackend {
 public:
-    bool setScene(const CollisionGrid& grid,GridPoint origin,std::vector<int> levels) override {grid_=grid;origin_=origin;levels_=std::move(levels);target_.reset();destination_.reset();
+    bool setScene(const CollisionGrid& grid,GridPoint origin,std::vector<int> levels) override {grid_=grid;origin_=origin;levels_=std::move(levels);
+       target_.reset();destination_.reset();
 #ifdef D2MODERN_INPROCESS
         shownValid_=false;shownGoal_.reset();
 #endif
@@ -52,7 +53,7 @@ private:
     std::unique_ptr<lan::Host> lanHost_;
     std::unique_ptr<lan::Guest> lanGuest_;
     std::filesystem::path lanSaveOut_; // where a guest writes its character when it leaves
-    native::Reply receive(unsigned) {
+    const native::Reply& receive(unsigned) {
         if(!answered_) {
             answered_=true;
             if(lanGuest_){lanGuest_->send(request_);lanGuest_->receive(*reply_);}
@@ -67,6 +68,7 @@ private:
     void send(native::Request request) {request_=request;answered_=false;}
 #else
     Handle process_,job_,input_,output_;
+    bool negotiated_=false;
 #endif
     CollisionGrid grid_;
     GridPoint origin_,held_{};
@@ -109,21 +111,32 @@ private:
     WorldSnapshot view_;
     uint32_t guid_{};
 #ifndef D2MODERN_INPROCESS
-    native::Reply receive(DWORD timeout) {
-        native::Reply reply;auto* bytes=reinterpret_cast<uint8_t*>(&reply);DWORD total=0;
+    std::unique_ptr<native::Reply> reply_=std::make_unique<native::Reply>(); // the last snapshot (too big for a stack)
+    const native::Reply& receive(DWORD timeout) {
         const auto deadline=GetTickCount64()+timeout;
-        while(total<sizeof(reply)) {
+        auto readBytes=[&](void* data,DWORD size) {
+        auto* bytes=static_cast<uint8_t*>(data);DWORD total=0;
+        while(total<size) {
             DWORD available=0;
             if(!PeekNamedPipe(output_.value,nullptr,0,nullptr,&available,nullptr))throw std::runtime_error("Native game host closed its pipe; see native-game-host.log");
             if(available) {
                 DWORD got=0;
-                if(!ReadFile(output_.value,bytes+total,std::min<DWORD>(available,sizeof(reply)-total),&got,nullptr)||!got)throw std::runtime_error("Native snapshot read failed");
+                if(!ReadFile(output_.value,bytes+total,std::min<DWORD>(available,size-total),&got,nullptr)||!got)throw std::runtime_error("Native snapshot read failed");
                 total+=got;
             } else {
                 if(WaitForSingleObject(process_.value,5)==WAIT_OBJECT_0)throw std::runtime_error("Native game host exited; see native-game-host.log");
                 if(GetTickCount64()>deadline)throw std::runtime_error("Native game host timed out");
             }
         }
+        };
+        if(!negotiated_) {
+            native::Hello hello;readBytes(&hello,sizeof(hello));
+            if(!native::compatible(hello))throw std::runtime_error("Incompatible native game host; rebuild the helper and client together");
+            DWORD done=0;
+            if(!WriteFile(input_.value,&hello,sizeof(hello),&done,nullptr)||done!=sizeof(hello))throw std::runtime_error("Native handshake pipe closed");
+            negotiated_=true;
+        }
+        native::Reply& reply=*reply_;readBytes(&reply,sizeof(reply));
         if(reply.signature!=native::magic)throw std::runtime_error("Native game returned an invalid snapshot");
         return reply;
     }
@@ -195,6 +208,7 @@ private:
             e.services=uint8_t(((u.flags&native::unitVendor)?1:0)|((u.flags&native::unitGambler)?2:0));
             e.classId=u.classId;e.life=u.life;e.maxLife=u.maxLife;e.mode=uint8_t(u.mode);e.direction=uint8_t(u.direction&63);e.animSpeed=uint16_t(u.animSpeed);std::copy(std::begin(u.states),std::end(u.states),e.states.begin());
             e.monsterType=u.monsterType;e.colorTransform=u.colorTransform;e.hitClass=u.hitClass;
+            e.sequenceMode=u.sequenceMode;e.sequenceFrame=u.sequenceFrame;
             std::copy(std::begin(u.umods),std::end(u.umods),e.umods.begin());std::copy(std::begin(u.name),std::end(u.name),e.name.begin());
             std::copy(std::begin(u.components),std::end(u.components),e.components.begin());
             e.lookClass=u.lookClass<7?uint8_t(u.lookClass):uint8_t(255);e.lookMode=uint8_t(u.lookMode);std::copy(std::begin(u.look),std::end(u.look),e.look.begin());
@@ -224,7 +238,7 @@ private:
             if(e.kind==EntityKind::Player) {
                 // Another player (LAN) in a skill's sequence (Charge, Leap...): drawn as this player's own character is. Leap's
                 // flight and landing frames are stepped here, a tick at a time, from its path (as publish does for this player).
-                e.sequenceMode=u.sequenceMode;e.sequenceFrame=u.sequenceFrame;e.usedSkill=u.usedSkill;
+                e.usedSkill=u.usedSkill;
                 if(u.pathType==9)e.skillMoveFrame=nextLeapSequenceFrame(e.skillMoveFrame,true,e.mode);
                 else if(e.skillMoveFrame!=255)e.skillMoveFrame=nextLeapSequenceFrame(e.skillMoveFrame,false,e.mode);
             }
@@ -257,7 +271,9 @@ private:
             double dx=double(position.x-p.previous.x),dy=double(position.y-p.previous.y);
             if(walkGoal_) {
                 const double gx=(walkGoal_->x+.5)*fixedOne-position.x,gy=(walkGoal_->y+.5)*fixedOne-position.y;
-                if(gx*gx+gy*gy>double(fixedOne)*fixedOne){dx=gx;dy=gy;}
+                // Only while the step goes that way: when the server moves the player elsewhere (a newer move sent past this
+                // client's input, a knockback), facing the old goal walked the character backwards.
+                if(gx*gx+gy*gy>double(fixedOne)*fixedOne&&gx*dx+gy*dy>0){dx=gx;dy=gy;}
             }
             p.facing=uint8_t(facingToward(dx,dy));
         }
@@ -321,10 +337,14 @@ public:
         // Parent must not retain the child's pipe ends or EOF detection will hang.
         CloseHandle(childInput.value);childInput.value=nullptr;CloseHandle(childOutput.value);childOutput.value=nullptr;
 #endif
-        auto reply=receive(30000);seed=reply.seed;characterClass=reply.characterClass;
+        const auto& reply=receive(30000);seed=reply.seed;characterClass=reply.characterClass;
         coloredEquipment=reply.coloredComponents!=0;
         appearance=appearanceFromCodes(characterClass,appearanceCodes(reply));
-        if(!lanGuest_&&seed!=requestedSeed)throw std::runtime_error("Native game seed does not match generated town");
+        bool sameSeedRequired=true;
+#ifdef D2MODERN_INPROCESS
+        sameSeedRequired=!lanGuest_;
+#endif
+        if(sameSeedRequired&&seed!=requestedSeed)throw std::runtime_error("Native game seed does not match generated town");
         publish(reply,true);
     }
     ~NativeGame() override {
@@ -512,7 +532,7 @@ public:
         lanGuest_->poll();
         // Scripted runs (smoke tests) step the game as fast as they can: there each tick waits for the host's next snapshot.
         static const bool waitForHost=[]{const char* v=std::getenv("D2MODERN_LAN_WAIT");return v&&*v;}();
-        if(waitForHost&&!lanGuest_->buffered()){native::Reply next;lanGuest_->receive(next);publish(next,false);return;}
+        if(waitForHost&&!lanGuest_->buffered()){lanGuest_->receive(*reply_);publish(*reply_,false);return;}
         size_t waiting=lanGuest_->buffered();
         ++lanStats_.ticks;lanStats_.most=std::max(lanStats_.most,waiting);
         lanLeast_=std::min(lanLeast_,waiting);

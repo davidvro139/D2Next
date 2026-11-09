@@ -116,7 +116,7 @@ Not built yet:
   Stash"). `D2MODERN_HOVER_OBJECT=ROW` puts the cursor on an object for a capture.
 - [ ] **Hover details**: the brightness of the lit-up object is an estimate; monsters and town people under the cursor are
   not lit up (the original outlines/brightens them too).
-- [ ] **Trade** panel (player to player) is not built; there is only one player.
+- [x] **Trade** panel (player to player): not needed (2026-11-06): the project is single-player only, with no online play.
 
 ## Small layout issues
 
@@ -467,8 +467,9 @@ Not built yet:
   `D2MODERN_AMBIENCE_TICKS=N` runs N ticks with the audio following.
 - [x] **Store sounds** (2026-10-11): the store's answer (0x2A, D2Client 0x6FAF58E4) plays `item_gold` for a sale and, for a
   purchase, the bought item's items.txt dropsound chosen as the request went out (0x6FAFA865). A dagger: smallmetalweapon.
-- [ ] **More sounds**: skills.txt `dosound` and `tgtsound`; the original picks hit cries by damage (soft/hard), here they
-  rotate; a unique or set item's own dropsound (uniqueitems/setitems) is not used for purchases.
+- [ ] **More sounds**: the original picks hit cries by damage (soft/hard), here they rotate. (skills.txt `dosound` and
+  `tgtsound` are played, see Main.cpp; a unique or set item's own dropsound doesn't matter for purchases: 1.10 stores never
+  sell uniques or sets. Checked 2026-11-06.)
 
 ## Character animation
 
@@ -493,9 +494,10 @@ death and lying dead). The animations are rebuilt when gear changes the weapon c
   keeps that facing until it walks again.
 - [x] **Missing layer files** (2026-09-26): a layer whose file doesn't exist is left out instead of stopping the load (a new
   Necromancer's `s3` armour layer, an Assassin's buckler). New Necromancers and Assassins failed to load before this.
-- [ ] **Assassin (and Barbarian) shield with one weapon**: the game (D2Common `UNITS_GetItemComponentId`) puts the second
-  hand's item on the left-hand weapon layer, and there is no `ai\lh\ailhbuc...` file, so an Assassin's starting buckler is
-  not drawn. Check whether the original client shows it.
+- [x] **Assassin (and Barbarian) shield with one weapon** (checked 2026-11-06): the game data has shield art (`buc`) only on
+  the SH layer (ai/ba/pa `sh\<cls>shbuc<mode>hth/1hs/1ht.dcc`; no `lh\...buc`), and every Assassin COF has an SH layer.
+  The client takes the hands by layer from INVENTORY_GetCompositItem (NativeSession.cpp, lookOf), so the shield is drawn on
+  SH; UNITS_GetItemComponentId's LH (the 0x9C packet's component) isn't used for it.
 - [x] **Coloured gear** (2026-10-09): items are drawn in their colours, inventory pictures and the gear worn on the
   character. D2Common ITEMS_GetColor (#10829; type 1 inventory, 0 character) picks the colour (affix transformcolor,
   uniqueitems/setitems invtransform/chrtransform, colour states) and returns D2CMP_MixPalette(file, colour); the x64 D2CMP

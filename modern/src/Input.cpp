@@ -545,7 +545,7 @@ void activateGameMenu(int action) {
     auto& s=touch::settings();
     switch(action) {
     case 1:gameMenuPage=GameMenuPage::Options;gameMenuSelection=0;break;
-    case 2:gameWindow->close();break; // Orderly NativeGame shutdown invokes D2Game's save callback.
+    case 2:leaveToMainMenu=leaveToCharacterSelect=true;gameMenuPage=GameMenuPage::Closed;break; // as in D2: saved as it closes, back to the character select
     case 3:gameMenuPage=GameMenuPage::Closed;break;
     case 4:if(gameAudio)gameAudio->setEnabled(!gameAudio->enabled());break;
     case 5:gameMenuPage=gameMenuPage==GameMenuPage::Sound?GameMenuPage::Options:GameMenuPage::Main;gameMenuSelection=0;break;

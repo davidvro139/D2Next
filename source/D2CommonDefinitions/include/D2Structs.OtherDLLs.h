@@ -48,7 +48,7 @@ struct D2AutomapCellStrc
 struct D2AutomapLayerStrc
 {
 	uint32_t nLayerNo;							//0x00
-	uint32_t fSaved;							//0x04
+	uint32_t nCellFile;						//0x04 town automap cell file (1..3), saved in the .map layer header
 	D2AutomapCellStrc* pFloors;				//0x08
 	D2AutomapCellStrc* pWalls;				//0x0C
 	D2AutomapCellStrc* pObjects;			//0x10
@@ -87,6 +87,8 @@ struct D2KeyConfigStrc
 };
 
 
+// Defined by Storm (Storm.h)
+struct SMSGHANDLER_PARAMS;
 
 typedef int32_t(__fastcall* MENUENABLED)();
 typedef void(__fastcall* MENUSELECT)(D2MenuItemStrc*, SMSGHANDLER_PARAMS*);
@@ -195,28 +197,4 @@ struct D2WindowPlacementStrc
 {
 	HWND hWnd;								//0x00
 	WINDOWPLACEMENT windowPlacement;		//0x04
-};
-
-struct SMSGHANDLER_PARAMS
-{
-	HWND hWnd;								//0x00
-	uint32_t uMessage;							//0x04
-	union									//0x08
-	{
-		WPARAM  wParam;
-		int32_t	  nKey;
-	};
-	union									//0x0C
-	{
-		struct
-		{
-			uint16_t	nXpos;
-			uint16_t	nYpos;
-		};
-		LPARAM   lParam;
-	};
-	uint32_t dwCommandSource;					//0x10 HIWORD(wParam) when uMessage == WM_COMMAND
-	uint32_t dwArg;							//0x14
-	BOOL bReturn;							//0x18
-	LRESULT lResult;						//0x1C
 };

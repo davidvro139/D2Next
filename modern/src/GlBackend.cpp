@@ -8,7 +8,9 @@
 // Direct3D's order, so where a pixel centre falls exactly on a texel edge both pick the same texel. It also lets
 // readback read rows top down.
 #include "GlBackend.h"
+#include "AssetTiming.h"
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -138,21 +140,45 @@ class GlBackend final:public GpuBackend {
     GLint pictureQuad=-1,pictureLight=-1,pictureAmount=-1,pictureYSign=-1,shadowQuad=-1,shadowYSign=-1;
     GLuint frame=0,frameColour=0,frameStencil=0; // the offscreen frame (upside down); colour is a texture
     bool direct_=false; // WebGL: draw into the canvas. Blit/copy from an FBO is rejected or stays black.
-    std::map<const Image*,GLuint> textures; // by the picture's address
+    struct Texture {GLuint id;size_t bytes;uint64_t lastFrame;};
+    std::map<const Image*,Texture> textures; // by the picture's address
+    size_t textureBytes=0;
+    // Textures are uploaded as pictures are first drawn and were never let go while their pictures lived, so GPU memory
+    // grew with every area and monster seen (380 MB of pictures, 780 MB in the driver, after a long run). Above the budget
+    // the least recently drawn ones go; a picture drawn again is uploaded again.
+    static constexpr size_t textureBudget=160u*1024*1024;
+    uint64_t frameNumber=0;
+    void trimTextures() {
+        if(textureBytes<=textureBudget)return;
+        std::vector<std::pair<uint64_t,const Image*>> old;
+        for(const auto& [image,texture]:textures)if(texture.lastFrame+1<frameNumber)old.push_back({texture.lastFrame,image});
+        std::sort(old.begin(),old.end());
+        for(const auto& [frame,image]:old) {
+            if(textureBytes<=textureBudget*3/4)break;
+            auto found=textures.find(image);
+            gl.DeleteTextures(1,&found->second.id);textureBytes-=found->second.bytes;textures.erase(found);
+        }
+    }
     std::map<uint32_t,GLuint> solids;       // plain colours, 1x1
     uint32_t width_=0,height_=0;
     GLuint upload(const Image& image) {
+        AssetTimer timing(AssetStage::GlUpload);
         GLuint id=0;gl.GenTextures(1,&id);
         gl.BindTexture(GL_TEXTURE_2D,id);
         gl.TexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);gl.TexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
         gl.TexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);gl.TexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
-        gl.TexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,GLsizei(image.width),GLsizei(image.height),0,GL_RGBA,GL_UNSIGNED_BYTE,image.rgba.data());
+        const Bytes expanded=image.indices.empty()?Bytes{}:image.expanded();
+        gl.TexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,GLsizei(image.width),GLsizei(image.height),0,GL_RGBA,GL_UNSIGNED_BYTE,(expanded.empty()?image.rgba:expanded).data());
         return id;
     }
     GLuint texture(const Image& image) {
         auto found=textures.find(&image);
-        if(found==textures.end())found=textures.emplace(&image,upload(image)).first;
-        return found->second;
+        if(found==textures.end()) {
+            const size_t bytes=size_t(image.width)*image.height*4;
+            found=textures.emplace(&image,Texture{upload(image),bytes,frameNumber}).first;textureBytes+=bytes;
+        }
+        found->second.lastFrame=frameNumber;
+        return found->second.id;
     }
     GLuint solid(const std::array<uint8_t,3>& c) {
         const uint32_t key=(uint32_t(c[0])<<16)|(uint32_t(c[1])<<8)|c[2];
@@ -303,6 +329,7 @@ public:
         gl.UseProgram(picture);setLight({1,1,1,1,1,1,1,1,1,1,1,1});gl.Uniform1f(pictureAmount,1.f);
     }
     void present() override {
+        ++frameNumber;trimTextures();
         if(!direct_) {
             gl.BindFramebuffer(GL_FRAMEBUFFER,0);
             gl.Viewport(0,0,GLint(width_),GLint(height_));
@@ -341,12 +368,20 @@ public:
         return changed;
     }
     void forgetTextures() override {
-        for(auto& [image,id]:textures)gl.DeleteTextures(1,&id);
-        textures.clear();
+        AssetTimer timing(AssetStage::GlDelete);
+        // Same texture set, fewer driver transitions; bounded stack storage.
+        std::array<GLuint,256> ids{};size_t count=0;
+        for(const auto& [image,texture]:textures) {
+            ids[count++]=texture.id;
+            if(count==ids.size()){gl.DeleteTextures(GLsizei(count),ids.data());count=0;}
+        }
+        if(count)gl.DeleteTextures(GLsizei(count),ids.data());
+        textures.clear();textureBytes=0;
     }
     void forgetTexture(const Image* image) override {
-        if(auto found=textures.find(image);found!=textures.end()){gl.DeleteTextures(1,&found->second);textures.erase(found);}
+        if(auto found=textures.find(image);found!=textures.end()){gl.DeleteTextures(1,&found->second.id);textureBytes-=found->second.bytes;textures.erase(found);}
     }
+    CacheStats cacheStats() const override {return {textures.size(),textureBytes,true};}
     bool software() const override {return false;}
     std::string name() const override {return name_;}
 };

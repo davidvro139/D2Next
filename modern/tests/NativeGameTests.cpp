@@ -19,7 +19,7 @@ int wmain(int argc,wchar_t** argv){try {
                 auto animation=d2::loadCharacter(archives,palette,mode,session.appearance);
                 require(animation.directions==16&&!animation.frames.empty(),"native appearance has no directional animation");
                 for(const auto& frame:animation.frames) {
-                    size_t opaque=0;for(size_t i=3;i<frame.image.rgba.size();i+=4)opaque+=frame.image.rgba[i]!=0;
+                    size_t opaque=0;for(size_t i=0;i<size_t(frame.image.width)*frame.image.height;++i)opaque+=frame.image.alpha(i)!=0;
                     require(opaque>100,"empty native character animation frame");
                 }
                 require(animation.frames[0].image.rgba!=animation.frames[1].image.rgba,"native character animation does not change");
@@ -91,9 +91,20 @@ int wmain(int argc,wchar_t** argv){try {
         session.backend.reset();require(initial.player().id==id,"retained snapshot lost");
         require(readSave(argv[3])==original,"original save changed");
     }
+    if(d2::nativeGameLinkedIn()) {
+        auto other=std::filesystem::temp_directory_path();
+        if(std::filesystem::equivalent(other,argv[2]))other=other.parent_path();
+        bool rejected=false;
+        try {auto wrong=d2::startNativeGame(argv[1],other,argv[3],town.seed,town.collision,town.worldOrigin);}
+        catch(const std::exception& e){rejected=std::string(e.what()).find("Cannot change game data directory")!=std::string::npos;}
+        require(rejected,"different content root silently reused initialized tables");
+        auto restored=d2::startNativeGame(argv[1],std::filesystem::path(argv[2])/".",argv[3],town.seed,town.collision,town.worldOrigin);
+        require(restored.backend->snapshot().localPlayer!=0,"original content root no longer works after rejection");
+        require(readSave(argv[3])==original,"root-rejection test modified original save");
+    }
     bool failed=false;
     try{auto invalid=d2::startNativeGame(argv[1],argv[2],std::filesystem::path(argv[3]).wstring()+L".missing",town.seed,town.collision,town.worldOrigin);}
     catch(const std::exception&){failed=true;}
     require(failed,"missing save did not fail");
-    std::cout<<"PASS: native appearance layers, idle/walk frames, join, authoritative walking, held movement/release, replay, repeated sessions, missing-save failure and unchanged original save\n";return 0;
+    std::cout<<"PASS: native appearance layers, idle/walk frames, join, authoritative walking, held movement/release, replay, repeated sessions, content-root isolation, missing-save failure and unchanged original save\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

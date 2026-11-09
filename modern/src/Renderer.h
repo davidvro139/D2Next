@@ -4,6 +4,7 @@
 #pragma once
 #include <random>
 #include "ClientState.h"
+#include "AssetTiming.h"
 #include "ItemStats.h"
 #include "Hud.h"
 #include "DrawList.h"
@@ -31,10 +32,26 @@ public:
     explicit Renderer(std::unique_ptr<d2::GpuBackend> backend):gpu(std::move(backend)) {}
     bool software() const {return gpu->software();}
     std::string backendName() const {return gpu->name();}
+    void logCacheStats() const {
+        const auto gpuStats=gpu->cacheStats();
+        const auto art=unitArt?unitArt->cacheStats():d2::UnitArt::CacheStats{};
+        size_t shadows=0;for(const auto& [key,value]:shadowImages)shadows+=value.image.storedBytes();
+        std::cout<<"bot: cache unit entries "<<art.entries<<" rgba bytes "<<art.bytes
+            <<", shadow entries "<<shadowImages.size()<<" rgba bytes "<<shadows
+            <<", GPU available "<<gpuStats.available<<" images "<<gpuStats.images<<" rgba bytes "<<gpuStats.rgbaBytes<<std::endl;
+    }
     size_t visibleCount=0;
+    uint64_t chargeSteps=0,chargeTick=0;
+    std::map<uint32_t,std::pair<uint64_t,uint64_t>> otherChargeSteps;
+    std::map<uint32_t,std::array<uint8_t,3>> nearestWeatherColors;
+    const d2::Palette* weatherPalette=nullptr;
+    void resetSessionHistory() {
+        chargeSteps=0;chargeTick=0;otherChargeSteps.clear();
+        nearestWeatherColors.clear();weatherPalette=nullptr;
+    }
     CharacterView view;
     // Other native units, drawn as debug glyphs: kind 1 town person (blue), 2 enemy (red), 3 corpse (grey).
-    struct OtherUnit {float x,y;uint8_t kind;unsigned facing;uint32_t classId,mode,guid;uint64_t ticks;uint16_t speed;std::array<uint32_t,6> states{};std::array<uint8_t,16> components{};uint8_t colorTransform=0,monsterType=0;uint8_t lookClass=255,lookMode=0;std::array<uint32_t,17> look{};
+    struct OtherUnit {float x,y;uint8_t kind;unsigned facing;uint32_t classId,mode,guid;uint64_t ticks;uint16_t speed;std::array<uint32_t,8> states{};std::array<uint8_t,16> components{};uint8_t colorTransform=0,monsterType=0;uint8_t lookClass=255,lookMode=0;std::array<uint32_t,17> look{};
         // Another player (LAN): its skill sequence (table mode and frame, Leap's frame, the skill) and where it stood a tick ago (Charge's trail).
         uint8_t sequenceMode=255,sequenceFrame=0,skillMoveFrame=255;uint16_t usedSkill=0;float tickX=0,tickY=0,lastX=0,lastY=0;}; // components, colour, type, player look: monsters (EntitySnapshot)
     d2::UnitArt* unitArt=nullptr; // monster and NPC animations, when the game data is available
@@ -91,7 +108,7 @@ public:
     std::map<const d2::Image*,d2::Image> dimImages;
     const d2::Image& dimmedImage(const d2::Image& image) {
         if(auto found=dimImages.find(&image);found!=dimImages.end())return found->second;
-        d2::Image copy=image;
+        d2::Image copy{image.width,image.height,image.expanded()};
         for(size_t i=0;i+3<copy.rgba.size();i+=4)for(int c=0;c<3;++c)copy.rgba[i+c]=uint8_t(copy.rgba[i+c]*35/100);
         return dimImages.emplace(&image,std::move(copy)).first->second;
     }
@@ -101,7 +118,7 @@ public:
     struct ShadowImage {d2::Image image;int x=0,y=0;bool any=false;};
     std::map<const d2::AnimationFrame*,ShadowImage> shadowImages;
     const ShadowImage* shadowOf(const d2::AnimationFrame& frame) {
-        if(!frame.shadow||frame.image.rgba.empty())return nullptr;
+        if(!frame.shadow||!frame.image.hasPixels())return nullptr;
         if(auto found=shadowImages.find(&frame);found!=shadowImages.end())return found->second.any?&found->second:nullptr;
         const auto& mask=frame.shadow==2?frame.shadowMask:frame.image;
         auto floorDiv=[](int a,int b){return a>=0?a/b:-((-a+b-1)/b);};
@@ -109,19 +126,22 @@ public:
         constexpr int lean=2; // a picture row y above the feet moves y/lean to the left, and y/2 up
         const int top=floorDiv(first,2),left=frame.x+std::min(floorDiv(first,lean),floorDiv(last,lean));
         const uint32_t w=frame.image.width+uint32_t(std::abs(floorDiv(last,lean)-floorDiv(first,lean))),h=uint32_t(floorDiv(last,2)-top+1);
-        d2::Image out{w,h,d2::Bytes(size_t(w)*h*4,0)};bool any=false;
+        // One byte a pixel: index 1 casts shadow (black, opaque; the colour comes from how it is drawn), 0 nothing.
+        static const auto shadowColors=std::make_shared<const std::vector<std::array<uint8_t,4>>>(std::vector<std::array<uint8_t,4>>{{0,0,0,0},{0,0,0,255}});
+        d2::Image out{w,h};out.indices.assign(size_t(w)*h,0);out.colors=shadowColors;bool any=false;
         for(uint32_t y=0;y<frame.image.height;++y) {
             const int ay=frame.y+int(y);const size_t row=size_t(floorDiv(ay,2)-top)*w;const int shift=frame.x+floorDiv(ay,lean)-left;
-            for(uint32_t x=0;x<frame.image.width;++x)if(mask.rgba[(size_t(y)*frame.image.width+x)*4+3]){out.rgba[(row+size_t(shift+int(x)))*4+3]=255;any=true;}
+            for(uint32_t x=0;x<frame.image.width;++x)if(mask.alpha(size_t(y)*frame.image.width+x)){out.indices[row+size_t(shift+int(x))]=1;any=true;}
         }
         ShadowImage s;s.x=left;s.y=top;s.any=any;s.image=std::move(out);
         auto& stored=shadowImages.emplace(&frame,std::move(s)).first->second;
         return stored.any?&stored:nullptr;
     }
-    // A new map: its tiles are drawn from their pictures (textures are made when first drawn); the old map's pictures are
-    // gone, so every cached texture is dropped.
-    void upload(const d2::MapScene& map) {
-        forgetImages();
+    // A live scene switch releases the old map explicitly before its storage moves.
+    // Character/UI images keep their owners and need not be uploaded again.
+    void upload(const d2::MapScene& map,bool retainOtherImages=false) {
+        if(!retainOtherImages)forgetImages();
+        else for(const auto* image:{&blockedGlyph,&freeGlyph,&markerGlyph,&townPersonGlyph,&enemyGlyph,&corpseGlyph})forgetImage(image);
         auto glyph=[&](std::array<uint8_t,4> color,bool outline) {
             d2::Image img{32,16,d2::Bytes(32*16*4,0)};
             for(int y=0;y<16;++y)for(int x=0;x<32;++x) {
@@ -138,7 +158,7 @@ public:
         corpseGlyph=glyph({130,130,130,255},true);
         scene=&map;spriteWidth=map.width;spriteHeight=map.height;
         wallOpacity.assign(map.placements.size(),1.f);wallFadeTime={};
-        size_t bytes=0;for(const auto& t:map.tiles)bytes+=t.image.rgba.size();
+        size_t bytes=0;for(const auto& t:map.tiles)bytes+=t.image.storedBytes();
         std::cout<<"GPU scene: "<<map.tiles.size()<<" shared tile textures | "<<bytes<<" texture bytes | "<<map.placements.size()<<" placements\n";
     }
     // The asset viewer's picture (no map), kept here; its texture is remade.
@@ -148,7 +168,11 @@ public:
     }
     void uploadCharacters(const d2::Animation& idle,const d2::Animation& walking){idleAnimation=&idle;walkAnimation=&walking;}
     // Before the player's animations are replaced (new gear): drop every mode, since the new gear may lack some.
-    void clearMovement(){movementAnimations.clear();playerTints.clear();}
+    void clearMovement(){
+        movementAnimations.clear();
+        for(const auto& [key,animation]:playerTints)forgetAnimation(*animation);
+        playerTints.clear();
+    }
     void uploadMovement(uint8_t mode,const d2::Animation& animation){movementAnimations[mode]=&animation;}
     // A front-end screen: 800x600 art scaled to fit the window, centred on black. Leaves the placement in menuScale/menuLeft/menuTop for mouse input.
     bool drawScreen(const std::vector<d2::ScreenSprite>& sprites) {
@@ -166,7 +190,35 @@ public:
     }
     // Pictures are drawn from textures cached by the picture's address: drop them before those pictures are freed, so a new
     // picture at the same address is not drawn with an old texture.
-    void forgetImages(){dimImages.clear();shadowImages.clear();gpu->forgetTextures();}
+    void forgetImages(){
+        {d2::AssetTimer timing(d2::AssetStage::DimRelease);dimImages.clear();}
+        {d2::AssetTimer timing(d2::AssetStage::ShadowRelease);shadowImages.clear();}
+        gpu->forgetTextures();
+    }
+    void forgetImage(const d2::Image* image) {
+        gpu->forgetTexture(image);
+        if(auto dim=dimImages.find(image);dim!=dimImages.end()) {
+            gpu->forgetTexture(&dim->second);dimImages.erase(dim);
+        }
+    }
+    void forgetScene(const d2::MapScene& map) {
+        d2::AssetTimer timing(d2::AssetStage::SceneRelease);
+        for(const auto& tile:map.tiles)forgetImage(&tile.image);
+    }
+    // Evict only this animation's GPU resources; unrelated textures remain ready to draw.
+    void forgetAnimation(const d2::Animation& animation) {
+        for(const auto& frame:animation.frames) {
+            for(const auto* image:{&frame.image,&frame.glow,&frame.shadowMask}) {
+                gpu->forgetTexture(image);
+                if(auto dim=dimImages.find(image);dim!=dimImages.end()) {
+                    gpu->forgetTexture(&dim->second);dimImages.erase(dim);
+                }
+            }
+            if(auto shadow=shadowImages.find(&frame);shadow!=shadowImages.end()) {
+                gpu->forgetTexture(&shadow->second.image);shadowImages.erase(shadow);
+            }
+        }
+    }
     // The player's mode decoded through a states.txt colorshift (Pal.PL2), or the untinted animation when shift is 0.
     // Kept until the gear changes (clearMovement). A level change only drops textures, so these pictures stay.
     const d2::Animation* tintedPlayer(uint8_t mode,const d2::Animation& untinted,uint8_t shift);

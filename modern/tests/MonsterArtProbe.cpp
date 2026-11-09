@@ -40,9 +40,9 @@ int main(int argc,char** argv){try {
             d2::UnitArt actArt(archives,d2::decodePalette(archives.read("data\\global\\palette\\act1\\pal.dat")));
             const int dumpMode=std::getenv("MONSTERART_MODE")?std::atoi(std::getenv("MONSTERART_MODE")):1;const auto* a=actArt.get(id,uint32_t(dumpMode),0u);if(!a)throw std::runtime_error("no art in that mode");const unsigned n=std::min(8u,a->framesPerDirection),cell=128;
             const unsigned W=cell*n,H=cell;std::vector<uint8_t> px(size_t(W)*H*4,96);
-            for(unsigned f=0;f<n;++f){const auto& fr=a->frames[f];
+            for(unsigned f=0;f<n;++f){const auto& fr=a->frames[f];const auto rgba=fr.image.expanded();
                 for(unsigned y=0;y<fr.image.height;++y)for(unsigned x=0;x<fr.image.width;++x){
-                    const uint8_t* s=&fr.image.rgba[(size_t(y)*fr.image.width+x)*4];if(!s[3])continue;
+                    const uint8_t* s=&rgba[(size_t(y)*fr.image.width+x)*4];if(!s[3])continue;
                     const int X=int(f*cell+cell/2)+fr.x+int(x),Y=int(cell*3/4)+fr.y+int(y);if(X<0||Y<0||X>=int(W)||Y>=int(H))continue;
                     uint8_t* d=&px[(size_t(H-1-Y)*W+X)*4];d[0]=s[2];d[1]=s[1];d[2]=s[0];d[3]=255;}}
             std::ofstream out(dump,std::ios::binary);

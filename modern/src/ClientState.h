@@ -2,6 +2,7 @@
 // shared by input, rendering and the game loop. The window and its input come through Platform.h.
 #pragma once
 #include "Assets.h"
+#include "HirelingPackets.h"
 #include "Navigation.h"
 #include "Occlusion.h"
 #include "Backend.h"
@@ -57,6 +58,7 @@ inline GameMenuPage gameMenuPage=GameMenuPage::Closed;
 inline std::vector<GameMenuRegion> gameMenuRegions;
 inline int gameMenuSelection=0,gameMenuPressed=0;
 std::vector<std::pair<int,std::string>> gameMenuItems(); // the Esc menu page's lines (action, caption), Input.cpp
+inline bool leaveToCharacterSelect=false; // Save and Exit Game: as leaveToMainMenu, the menus starting at the character select
 inline bool leaveToMainMenu=false; // the Esc menu's Back to Main Menu: the game loop ends and the menus start again
 void resetClientState(); // everything above back to how a new game starts (after leaving one for the main menu)
 inline d2::Audio* gameAudio=nullptr;
@@ -217,6 +219,7 @@ struct NpcDialog {
     std::string message;uint64_t messageUntil=0;
     bool openedInventory=false;
     uint64_t talkStart=0;double talkSeconds=0; // the Talk page: when the speech began (ms) and how long it scrolls
+    bool talkWaitingVoice=false; // the voice is still being read: the text starts scrolling when it starts speaking
 };
 inline NpcDialog npcDialog;
 // What a unit says over its head (packet 0x27 with one entry of type 3, D2Client 0x6FB1DE35: a hireling's "I feel much stronger
@@ -225,6 +228,7 @@ struct OverheadText {uint32_t guid=0;std::string text;uint64_t until=0;};
 inline std::vector<OverheadText> overheadTexts;
 // The player's mercenary (packet 0x81: its native id, monstats class and name string), 0 none.
 inline uint32_t mercGuid=0,mercClass=0,mercName=0;
+inline d2::HirelingPackets heldHirelings; // pending ownership packets, cleared at session reset
 // A dead hireling the hiring NPCs can bring back (packet 0x9B: its name string, -1 none, and the gold it costs).
 inline int32_t deadMercName=-1,resurrectCost=0;
 // The player's pets in the order they came (packets 0x7A add/remove, 0x81 a mercenary): pettype.txt row, monstats class, native

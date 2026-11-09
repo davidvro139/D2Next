@@ -54,8 +54,19 @@ void line(const char* fmt, ...)
 }
 } // namespace
 
+LONG WINAPI crashReport(EXCEPTION_POINTERS* e)
+{
+    HMODULE m = nullptr;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)e->ExceptionRecord->ExceptionAddress, &m);
+    char name[MAX_PATH] = "";
+    GetModuleFileNameA(m, name, MAX_PATH);
+    std::fprintf(stderr, "exception %08lX at %s+%llX\n", e->ExceptionRecord->ExceptionCode, name, (unsigned long long)((char*)e->ExceptionRecord->ExceptionAddress - (char*)m));
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 int main(int argc, char** argv)
 {
+    AddVectoredExceptionHandler(1, crashReport);
     if (argc < 3)
     {
         std::printf("usage: FogDiffTest <Fog.dll> <output file> [dll search dir]\n");
@@ -267,6 +278,87 @@ int main(int argc, char** argv)
         line("empty getLinkIndex -> %d", getLinkIndex(l, 0x41414141u, 1));
         freeLinker(l);
         line("null nameOf -> '%s'", nameOf(nullptr, 5, 1)); // (the original dereferences a null linker in GetRowFromTxt, so that is not tested)
+    }
+
+    // ---- The text table reader (10208 CreateBinFile, 10210 record count, 10207 fill records, 10209 free): one table
+    // with every plain field type, linked codes and names, odd cells (empty, negative, too big, too long, letters in
+    // numbers), a column the fields do not name, a field no column fills, and the "Expansion" row. Records as hex.
+    if (!(argc > 4 && std::strcmp(argv[4], "--no-bin") == 0))
+    {
+#pragma pack(push, 1) // as Fog.h declares D2BinFieldStrc
+        struct Field { const char* name; uint32_t type; int32_t length, offset; void* link; }; // link: the address of a linker pointer
+#pragma pack(pop)
+        auto createBin = fn<void*(__stdcall*)(void*, int)>(10208);
+        auto fillBin = fn<void(__stdcall*)(void*, Field*, void*, int, int)>(10207);
+        auto freeBin = fn<void(__stdcall*)(void*)>(10209);
+        auto binCount = fn<int(__stdcall*)(void*)>(10210);
+        void* codes = allocLinker("bin", 1);
+        void* names = allocLinker("bin", 2);
+        void* namesToo = allocLinker("bin", 3);
+        void* codesToo = allocLinker("bin", 4);
+        int at = 16;
+        auto next = [&](int bytes) { const int o = at; at += bytes; return o; };
+        Field fields[] = {
+            {"name", 1, 15, 0, nullptr},
+            {"dword", 2, 0, next(4), nullptr}, {"word", 3, 0, next(4), nullptr}, {"byte", 4, 0, next(4), nullptr},
+            {"unk5", 5, 0, next(4), nullptr}, {"byte2", 6, 0, next(4), nullptr}, {"short", 7, 3, next(4), nullptr},
+            {"dword2", 8, 0, next(4), nullptr}, {"raw", 9, 0, next(4), nullptr},
+            {"code", 10, 0, next(4), &codes}, {"code12", 12, 0, next(4), &codesToo},
+            {"ref11", 11, 0, next(4), &codes}, {"ref13", 13, 0, next(4), &codes}, {"ref15", 15, 0, next(4), &codes},
+            {"id", 17, 0, next(4), &names}, {"id18", 18, 0, next(4), &namesToo},
+            {"nref19", 19, 0, next(4), &names}, {"nref20", 20, 0, next(4), &names}, {"nref21", 21, 0, next(4), &names},
+            {"bit0", 26, 0, at, nullptr}, {"bit5", 26, 5, at, nullptr}, {"bit31", 26, 31, at, nullptr},
+            {"WORD", 3, 0, next(4) + 4, nullptr}, // the same name in other case: the column fills both
+            {"nocolumn", 2, 0, next(4) + 4, nullptr},
+            {nullptr, 0, 0, 0, nullptr}};
+        const int recordSize = 160;
+        std::string text = "name\tdword\tword\tbyte\tunk5\tbyte2\tshort\tdword2\traw\tcode\tcode12\tref11\tref13\tref15\tid\tid18\tnref19\tnref20\tnref21\tbit0\tbit5\tbit31\textra\r\n";
+        const char* cells[][23] = {
+            {"first", "1", "2", "3", "4", "5", "6", "7", "abcd", "c1", "k1", "c1", "c1", "c1", "alpha", "beta", "alpha", "alpha", "alpha", "1", "1", "1", "x"},
+            {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""},
+            {"Expansion", "9", "9", "9", "9", "9", "9", "9", "zzzz", "c9", "k9", "c9", "c9", "c9", "nine", "nine", "nine", "nine", "nine", "1", "1", "1", ""},
+            {"a name longer than the field", "-5", "-1", "-1", "300", "70000", "-32769", "4294967295", "ab", "c2", "k1", "c2", "nope", "c1", "gamma", "beta", "gamma", "missing", "beta", "0", "7", "2", ""},
+            {"letters", "12abc", "x", "0x10", "+3", " 4", "99999", "-2147483648", "abcdef", "C1", "K2", "C1", "c2", "C2", "Alpha", "BETA", "ALPHA", "gamma", "", "", "", "1", "y"},
+            {"spaces ", " 7 ", "8 ", " 9", "1 0", "\"q\"", "1e3", "2147483648", " a b", "c3 ", "", "c3", "c3", "c3", "delta", "", "delta", "delta", "delta", "1", "0", "0", ""},
+        };
+        for (auto& row : cells)
+        {
+            for (int c = 0; c < 23; ++c)
+                text += std::string(c ? "\t" : "") + row[c];
+            text += "\r\n";
+        }
+        std::vector<char> buffer(text.begin(), text.end());
+        buffer.push_back(0);
+        // Fog owns the buffer (FreeBinFile frees it): it comes from Fog's allocator (10042).
+        auto fogAlloc = fn<void*(__fastcall*)(int, const char*, int, int)>(10042);
+        char* owned = static_cast<char*>(fogAlloc(int(buffer.size()), __FILE__, __LINE__, 0));
+        std::memcpy(owned, buffer.data(), buffer.size());
+        void* bin = createBin(owned, int(text.size()));
+        if (!bin) { line("bin no rows"); } else {
+        const int count = binCount(bin);
+        line("bin records %d", count);
+        std::vector<uint8_t> records(size_t(count > 0 ? count : 1) * recordSize, 0xCC);
+        fillBin(bin, fields, records.data(), count, recordSize);
+        for (int r = 0; r < count; ++r)
+        {
+            std::string hex;
+            char two[4];
+            for (int b = 0; b < recordSize; ++b)
+            {
+                std::snprintf(two, sizeof(two), "%02X", records[size_t(r) * recordSize + b]);
+                hex += two;
+            }
+            line("bin record %d %s", r, hex.c_str());
+        }
+        freeBin(bin);
+        }
+        for (int id = 0; id < 6; ++id)
+            line("bin names %d '%s' '%s'", id, nameOf(names, id, 1), nameOf(namesToo, id, 1));
+        line("bin code index c1 %d c3 %d", getLinkIndex(codes, '1c', 1), getLinkIndex(codes, '3c', 1));
+        freeLinker(codes);
+        freeLinker(names);
+        freeLinker(namesToo);
+        freeLinker(codesToo);
     }
 
     std::fclose(out);

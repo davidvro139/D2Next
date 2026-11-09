@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <set>
 #include <memory>
 #include <optional>
 #include <tuple>
+#include <functional>
 namespace d2 {
 // Tab separated game table (`data\global\excel\*.txt` inside the MPQs), addressed by column name.
 class TextTable {
@@ -29,6 +31,7 @@ struct MonsterSprite {
     std::array<bool,16> hasMode{};                  // per monster mode: has an animation
     std::array<uint8_t,16> directions{};            // per monster mode: directions in the animation
     bool npc=false;
+    bool compositeDeath=false; // monstats2: retain BaseW for death/dead; otherwise HTH
     int transLvl=0; // monstats.txt TransLvl: the map of the monster's COF\palshift.dat it is drawn with (Carvers, Devilkin... are recoloured Fallen)
     int overlayHeight=2; // monstats2.txt OverlayHeight: which overlay.txt Height1-4 offset to use
     std::string monSound; // row of monsounds.txt
@@ -62,27 +65,51 @@ private:
 // Lazily loaded monster/NPC animations, one per (class, mode); a class or mode that cannot be loaded is remembered as missing.
 class UnitArt {
 public:
-    UnitArt(const Archives& archives,const Palette& palette):archives_(archives),palette_(palette),table_(archives) {}
+    UnitArt(const Archives& archives,const Palette& palette);
+    ~UnitArt();
+    // From now on art is read and decoded on another thread: get() and player() return nullptr until it is ready (taken
+    // in by beginFrame), and loading() tells such a unit from one with no art. Without it everything loads at once.
+    void loadInBackground();
+    bool loading(uint32_t classId) const {return loadingClasses_.count(classId)!=0;}
     void setStateColors(const StateColors* colors){stateColors_=colors;}
-    // Nullptr when the class has no such animation. The pointer stays valid for the life of this object.
+    struct CacheStats {size_t entries{},bytes{};};
+    CacheStats cacheStats() const {return {players_.size()+cache_.size()+exact_.size(),residentBytes_};}
+    // Call only between rendered frames, after discarding draw commands and before obtaining any animation pointers.
+    // Cold entries are removed above the budget; art used in the previous frame stays pinned to avoid decoding thrash.
+    // beforeEvict must release GPU textures and derived images before the CPU frames are freed.
+    size_t beginFrame(size_t maxBytes=192*1024*1024,size_t maxEntries=512,
+        const std::function<void(const Animation&)>& beforeEvict={});
+    // Nullptr when the class has no such animation. Pointers survive until an explicit beginFrame eviction.
     const Animation* get(uint32_t classId,uint32_t mode,uint32_t variantSeed);
     // The same with the pieces the game chose for this monster, its colour transform (RandTransforms.dat map + 1, 0 none)
     // and the states.txt colorshift in force (0 none; it replaces the unique colour, the higher colorpri wins).
     const Animation* get(uint32_t classId,uint32_t mode,const std::array<uint8_t,16>& components,uint8_t colorTransform,uint8_t stateShift=0);
     const MonsterSprite* sprite(uint32_t classId) const {return table_.find(classId);}
     // Player art in a player mode for a look (a monster drawn as a player: Valkyrie, Decoy, Shadow Warrior); nullptr when
-    // there is none. The pointer stays valid for the life of this object.
+    // there is none. Pointers survive until an explicit beginFrame eviction.
     const Animation* player(const CharacterAppearance& look,uint32_t mode);
 private:
-    std::map<std::string,std::unique_ptr<Animation>> players_;
+    struct CachedAnimation {
+        std::unique_ptr<Animation> animation;
+        size_t bytes=0;uint64_t lastFrame=0;bool evict=false;
+    };
+    CachedAnimation remember(std::unique_ptr<Animation> animation);
+    const Animation* touch(CachedAnimation& entry){entry.lastFrame=frame_;return entry.animation.get();}
+    uint64_t frame_=0;size_t residentBytes_=0;
+    std::map<std::string,CachedAnimation> players_;
     const Archives& archives_;
     Palette palette_;
     MonsterTable table_;
     const StateColors* stateColors_=nullptr;
-    std::map<uint64_t,std::unique_ptr<Animation>> cache_;
-    std::map<std::tuple<uint32_t,uint32_t,std::array<uint8_t,16>,uint8_t,uint8_t>,std::unique_ptr<Animation>> exact_;
-    Bytes transforms_; // RandTransforms.dat: 30 maps of 256 palette indices
-    std::map<std::string,Bytes> palshifts_; // per monster code: its palshift.dat (maps of 256 palette indices)
+    std::map<uint64_t,CachedAnimation> cache_;
+    std::map<std::tuple<uint32_t,uint32_t,std::array<uint8_t,16>,uint8_t,uint8_t>,CachedAnimation> exact_;
+    // Loads an animation now, or (in the background) queues it and returns false; done stores it when it arrives.
+    using Work=std::function<std::unique_ptr<Animation>(const Archives&)>;
+    bool load(uint32_t classId,Work work,std::function<void(std::unique_ptr<Animation>)> done);
+    struct Loader;
+    std::unique_ptr<Loader> loader_;
+    std::map<uint32_t,int> loadingClasses_; // classes with art on the way, and how many pieces
+    std::set<std::string> pending_;         // the keys of art on the way
 };
 }
 namespace d2 {
@@ -171,12 +198,16 @@ private:
 class ObjectArt {
 public:
     ObjectArt(const Archives& archives,const Palette& palette,const ObjectTable& table):archives_(archives),palette_(palette),table_(table) {}
-    const Animation* get(uint32_t classId,uint32_t mode);
+    ~ObjectArt(){if(background_)background_->forget(this);}
+    const Animation* get(uint32_t classId,uint32_t mode); // null also while it is read in the background
+    void loadInBackground() {background_=BackgroundReads::shared(archives_.root());}
 private:
     const Archives& archives_;
     Palette palette_;
     const ObjectTable& table_;
     std::map<uint64_t,std::unique_ptr<Animation>> cache_;
+    std::shared_ptr<BackgroundReads> background_;
+    std::set<uint64_t> pending_;
 };
 // Sound files of monsters: monstats MonSound -> monsounds.txt -> sounds.txt (paths relative to data\global\sfx, empty when none).
 class SoundBank {
@@ -186,19 +217,32 @@ public:
     std::string monsterDeath(uint32_t classId) const;
     std::string monsterAttack(uint32_t classId,int mode) const;
     std::string monsterWeapon(uint32_t classId,int mode) const;
+    // monsounds.txt timing for a monster's sound: the frames after the mode starts (AttNDel, WeaNDel, HitDelay, DeaDelay),
+    // the chance in percent that it plays at all (AttNPrb; 100 for the others) and its volume 0-255 (WeaNVol; 255 for the others).
+    struct Timing {int delay=0,chance=100,volume=255;};
+    // which: 0 attack cry, 1 weapon, 2 hit, 3 death.
+    Timing monsterTiming(uint32_t classId,int mode,int which) const;
     // The file (relative to data\global\sfx) of a sounds.txt sound, "" when there is none.
     std::string file(const std::string& soundName) const;
     // The same by sounds.txt Index (row number), as the client's tables name sounds (the NPCs' speech).
     std::string fileByIndex(int index) const {auto f=byIndex_.find(index);return f==byIndex_.end()||f->second=="none.wav"?std::string():f->second;}
     // sounds.txt Volume (0-255) and Group Size (the rows from this one that the game picks among at random; 0 just this one).
     int volumeByIndex(int index) const {auto f=volumes_.find(index);return f==volumes_.end()?255:f->second.first;}
+    // A sounds.txt sound played as the game picks it: one of its Group Size rows at random (roll), at its Volume; deferKey
+    // set (the first row's name) when the sound has Defer Inst, so a new one waits until the last has ended.
+    struct Pick {std::string file;float gain=1.f;std::string deferKey;};
+    Pick pick(const std::string& soundName,uint32_t roll) const;
+    // The sounds.txt name of a monster's sound (monsounds.txt): which 0 attack cry, 1 weapon, 2 hit, 3 death.
+    std::string monsterSoundName(uint32_t classId,int mode,int which) const;
     int groupByIndex(int index) const {auto f=volumes_.find(index);return f==volumes_.end()?0:f->second.second;}
 private:
     const MonsterTable& monsters_;
     std::map<std::string,std::string> sounds_;
+    std::map<std::string,int> nameIndex_; // sounds.txt Sound -> Index
+    std::map<int,bool> deferInst_;         // sounds.txt Defer Inst by Index
     std::map<int,std::string> byIndex_;
     std::map<int,std::pair<int,int>> volumes_;
-    struct MonsterSounds {std::array<std::string,2> attack,weapon;std::string hit,death;};
+    struct MonsterSounds {std::array<std::string,2> attack,weapon;std::string hit,death;std::array<int,2> attackDelay{},weaponDelay{},attackChance{100,100},weaponVolume{255,255};int hitDelay=0,deathDelay=0;};
     std::map<std::string,MonsterSounds> monsterSounds_;
 };
 // A missile (spell/arrow projectile or its impact effect) as the client draws it: one row of missiles.txt.
@@ -236,12 +280,16 @@ private:
 class MissileArt {
 public:
     MissileArt(const Archives& archives,const Palette& palette,const MissileTable& table):archives_(archives),palette_(palette),table_(table) {}
-    const Animation* get(uint32_t classId);
+    ~MissileArt(){if(background_)background_->forget(this);}
+    const Animation* get(uint32_t classId); // null also while it is read in the background
+    void loadInBackground() {background_=BackgroundReads::shared(archives_.root());}
 private:
     const Archives& archives_;
     Palette palette_;
     const MissileTable& table_;
     std::map<uint32_t,std::unique_ptr<Animation>> cache_;
+    std::shared_ptr<BackgroundReads> background_;
+    std::set<uint32_t> pending_;
 };
 // Overlays (overlay.txt): effects drawn on a unit, such as the glow while casting. frames advance rate/16 per game tick; trans is
 // a COF draw effect (3: added onto the scene); radius and colour are the light it gives.
@@ -263,11 +311,11 @@ public:
     const StateInfo* find(uint32_t id) const {return id<states_.size()?&states_[id]:nullptr;}
     int rowOf(const std::string& name) const {for(size_t i=0;i<states_.size();++i)if(states_[i].name==name)return int(i);return -1;}
     // The colour and light of the active state with the highest colorpri (none when nothing qualifies).
-    StateVisual visual(const std::array<uint32_t,6>& states) const;
+    StateVisual visual(const std::array<uint32_t,8>& states) const;
     // The sheet colour bits (StateInfo::sheetBlue / sheetRed) of all the active states together.
-    std::pair<uint8_t,uint8_t> sheetColors(const std::array<uint32_t,6>& states) const {
+    std::pair<uint8_t,uint8_t> sheetColors(const std::array<uint32_t,8>& states) const {
         uint8_t blue=0,red=0;
-        for(size_t s=0;s<states_.size()&&s<192;++s)if(states[s>>5]&(1u<<(s&31))){blue|=states_[s].sheetBlue;red|=states_[s].sheetRed;}
+        for(size_t s=0;s<states_.size()&&s<256;++s)if(states[s>>5]&(1u<<(s&31))){blue|=states_[s].sheetBlue;red|=states_[s].sheetRed;}
         return {blue,red};
     }
 private:
@@ -410,12 +458,17 @@ public:
     ItemArt(const Archives& archives,const Palette& palette,const ItemTable& items):archives_(archives),palette_(palette),items_(items) {}
     // Null when the game data has no picture for the item. trans / color: the item's colour (itemspalette file 1..8 and
     // colour 0..20, trans 0 none): the picture is drawn through that file's colour map.
+    // Null also while the picture is read in the background.
+    ~ItemArt(){if(background_)background_->forget(this);}
     const Image* get(uint32_t code,uint32_t quality,uint32_t invGraphic,uint8_t trans=0,uint8_t color=0);
+    void loadInBackground() {background_=BackgroundReads::shared(archives_.root());}
 private:
     const Archives& archives_;
     Palette palette_;
     const ItemTable& items_;
-    std::map<std::string,std::unique_ptr<Image>> cache_;
-    std::map<uint8_t,Bytes> maps_; // items/palette/*.dat by file number: 21 colour maps of 256 indices
+    // By item and look (code/quality/graphic/trans/colour): the first of its candidate pictures the data has.
+    std::map<std::string,std::shared_ptr<const Image>> cache_;
+    std::shared_ptr<BackgroundReads> background_;
+    std::set<std::string> pending_;
 };
 }

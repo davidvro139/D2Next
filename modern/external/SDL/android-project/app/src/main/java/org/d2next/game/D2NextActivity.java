@@ -62,6 +62,7 @@ public final class D2NextActivity extends SDLActivity {
     private static final String SAVE_URI = "save_uri";
     private static final String VIEW_ZOOM = "view_zoom";
     private static final String CHEATS = "cheats";
+    private static final String MOD = "mod";
     private static final String[] ZOOM_LABELS = {"1X", "1.25X", "1.5X", "2X", "2.5X", "3X"};
     private static final int COLOR_BG = 0xFF120C0A;
     private static final int COLOR_CARD = 0xFF1C1612;
@@ -132,6 +133,11 @@ public final class D2NextActivity extends SDLActivity {
     private Button launchButton, changeButton;
     private boolean mpqsReady, showingSettings, launcherCheats;
     private int launcherZoom = 2;
+    // The mod to play: a folder in MPQ/Mods ("" = Diablo II itself), and the folders found there.
+    private String launcherMod = "";
+    private final java.util.List<String> availableMods = new ArrayList<>();
+    private CheckBox modCheck;
+    private TextView modValueView;
 
     public void requestLauncher(String privateDirectory) {
         privateRoot = privateDirectory;
@@ -180,6 +186,7 @@ public final class D2NextActivity extends SDLActivity {
     private void showLauncher() {
         launcherZoom = loadLauncherZoom();
         launcherCheats = loadLauncherCheats();
+        launcherMod = preferences().getString(MOD, "");
         if (launcherView == null) {
             launcherView = buildLauncher();
             RelativeLayout.LayoutParams fill = new RelativeLayout.LayoutParams(
@@ -321,6 +328,9 @@ public final class D2NextActivity extends SDLActivity {
         card.addView(zoomCheck);
         cheatCheck = cheatToggle("Cheats — off");
         card.addView(cheatCheck);
+        modCheck = checkItem("Mod — none");
+        modCheck.setChecked(true);
+        card.addView(modCheck);
         return card;
     }
 
@@ -388,6 +398,22 @@ public final class D2NextActivity extends SDLActivity {
         cheatSettingCheck = cheatToggle("Enable cheats");
         cheatCard.addView(cheatSettingCheck);
         settings.addView(cheatCard);
+
+        settings.addView(sectionLabel("MOD"));
+        LinearLayout modCard = card();
+        modCard.addView(bodyText("A mod is a folder in MPQ/Mods with its .mpq files (and an optional data folder). Its characters are kept in Save/Mods."));
+        LinearLayout modRow = new LinearLayout(this);
+        modRow.setOrientation(LinearLayout.HORIZONTAL);
+        modRow.setGravity(Gravity.CENTER_VERTICAL);
+        modRow.addView(smallButton("‹", v -> cycleMod(-1)), buttonSlot());
+        modValueView = bodyText("None");
+        modValueView.setTextColor(COLOR_GOLD);
+        modValueView.setGravity(Gravity.CENTER);
+        modValueView.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
+        modRow.addView(modValueView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        modRow.addView(smallButton("›", v -> cycleMod(1)), buttonSlot());
+        modCard.addView(modRow);
+        settings.addView(modCard);
         return settings;
     }
 
@@ -421,6 +447,51 @@ public final class D2NextActivity extends SDLActivity {
         if (changeButton != null) {
             changeButton.setText("DONE");
         }
+    }
+
+    private void cycleMod(int step) {
+        java.util.List<String> choices = new ArrayList<>();
+        choices.add("");
+        choices.addAll(availableMods);
+        int at = Math.max(0, choices.indexOf(launcherMod));
+        launcherMod = choices.get((at + step + choices.size()) % choices.size());
+        updateModLabel();
+    }
+
+    private void updateModLabel() {
+        if (!launcherMod.isEmpty() && !availableMods.contains(launcherMod)) {
+            launcherMod = "";
+        }
+        String label = launcherMod.isEmpty() ? "None" : launcherMod;
+        if (modValueView != null) {
+            modValueView.setText(label);
+        }
+        if (modCheck != null) {
+            modCheck.setText("Mod — " + (launcherMod.isEmpty() ? "none" : launcherMod));
+            modCheck.setTextColor(launcherMod.isEmpty() ? COLOR_MUTED : COLOR_GOLD);
+        }
+    }
+
+    // The folders in MPQ/Mods that hold at least one .mpq.
+    private java.util.List<String> findMods(Uri tree, Uri mpqFolder) throws Exception {
+        java.util.List<String> mods = new ArrayList<>();
+        Uri folder = findChild(tree, mpqFolder, "Mods");
+        if (folder == null || !isDirectory(tree, folder)) {
+            return mods;
+        }
+        for (Uri mod : children(tree, folder)) {
+            if (!isDirectory(tree, mod)) {
+                continue;
+            }
+            for (Uri child : children(tree, mod)) {
+                if (displayName(tree, child).toLowerCase(Locale.ROOT).endsWith(".mpq")) {
+                    mods.add(displayName(tree, mod));
+                    break;
+                }
+            }
+        }
+        java.util.Collections.sort(mods);
+        return mods;
     }
 
     private void updateZoomLabel() {
@@ -458,6 +529,7 @@ public final class D2NextActivity extends SDLActivity {
             String savePath = "Not set";
             String saveStatus = "Characters will be stored in the game folder's Save directory.";
             boolean[] found = new boolean[REQUIRED_MPQS.length];
+            java.util.List<String> foundMods = new ArrayList<>();
             try {
                 Uri tree = storedTree();
                 if (tree != null) {
@@ -472,6 +544,7 @@ public final class D2NextActivity extends SDLActivity {
                     mpqPath = friendlyPath(tree, mpqFolder);
                     folderOk = true;
                     Set<String> names = listedMpqNames(tree, game, mpqFolder);
+                    foundMods = findMods(tree, mpqFolder);
                     for (int i = 0; i < REQUIRED_MPQS.length; i++) {
                         found[i] = names.contains(REQUIRED_MPQS[i]);
                     }
@@ -506,7 +579,11 @@ public final class D2NextActivity extends SDLActivity {
             final String shownSavePath = savePath;
             final String shownSaveStatus = saveStatus;
             final boolean[] shownFound = found;
+            final java.util.List<String> shownMods = foundMods;
             runOnUiThread(() -> {
+                availableMods.clear();
+                availableMods.addAll(shownMods);
+                updateModLabel();
                 mpqsReady = shownReady;
                 if (mpqPathView != null) {
                     mpqPathView.setText(shownMpqPath);
@@ -658,14 +735,17 @@ public final class D2NextActivity extends SDLActivity {
         if (!missingRequiredMpqs(mpq).isEmpty()) {
             throw new IllegalStateException("Required Diablo II archives are missing from the MPQ folder.");
         }
+        linkModMpqs(tree, mpqFolder, new File(mpq, "Mods"));
         Uri save = storedSaveTree();
         if (save != null) {
             copySaveFiles(save, save, saves);
+            copyModSaves(save, save, saves);
         } else {
             Uri saveFolder = ensureDirectory(tree, game, "Save");
             writeTextIfMissing(tree, saveFolder, "README.txt", SAVE_README);
             copySaveFiles(tree, game, saves);
             copySaveFiles(tree, saveFolder, saves);
+            copyModSaves(tree, saveFolder, saves);
         }
         importedThisProcess = true;
         startPeriodicSync(tree);
@@ -695,6 +775,68 @@ public final class D2NextActivity extends SDLActivity {
             if (MPQ_FILES.contains(name.toLowerCase(Locale.ROOT))) {
                 linkMpqDocument(tree, child, new File(destination, canonicalMpqName(name)));
             }
+        }
+    }
+
+    // MPQ/Mods/<name>/*.mpq: every archive of every mod folder, linked like the game's (the game picks one mod).
+    private void linkModMpqs(Uri tree, Uri mpqFolder, File destination) throws Exception {
+        deleteTree(destination);
+        Uri mods = findChild(tree, mpqFolder, "Mods");
+        if (mods == null || !isDirectory(tree, mods)) {
+            return;
+        }
+        for (Uri mod : children(tree, mods)) {
+            if (!isDirectory(tree, mod)) {
+                continue;
+            }
+            File folder = new File(destination, displayName(tree, mod));
+            if (!folder.mkdirs() && !folder.isDirectory()) {
+                throw new IllegalStateException("Cannot create " + folder);
+            }
+            for (Uri child : children(tree, mod)) {
+                String name = new File(displayName(tree, child)).getName();
+                if (name.toLowerCase(Locale.ROOT).endsWith(".mpq")) {
+                    linkMpqDocument(tree, child, new File(folder, name));
+                }
+            }
+        }
+    }
+
+    // Save/Mods/<name>: each mod keeps its characters apart from the game's.
+    private void copyModSaves(Uri tree, Uri saveFolder, File saves) throws Exception {
+        Uri mods = findChild(tree, saveFolder, "Mods");
+        if (mods == null || !isDirectory(tree, mods)) {
+            return;
+        }
+        for (Uri mod : children(tree, mods)) {
+            if (!isDirectory(tree, mod)) {
+                continue;
+            }
+            File folder = new File(new File(saves, "Mods"), displayName(tree, mod));
+            if (!folder.mkdirs() && !folder.isDirectory()) {
+                throw new IllegalStateException("Cannot create " + folder);
+            }
+            copySaveFiles(tree, mod, folder);
+        }
+    }
+
+    private static void deleteTree(File file) {
+        File[] files = file.listFiles();
+        if (files != null) {
+            for (File child : files) {
+                deleteTree(child);
+            }
+        }
+        file.delete();
+    }
+
+    private boolean isDirectory(Uri tree, Uri document) {
+        String[] columns = {DocumentsContract.Document.COLUMN_MIME_TYPE};
+        try (Cursor cursor = getContentResolver().query(asDocumentUri(tree, document), columns, null, null, null)) {
+            return cursor != null && cursor.moveToFirst()
+                && DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(0));
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -785,6 +927,22 @@ public final class D2NextActivity extends SDLActivity {
                 }
             }
         }
+        File[] modSaves = new File(privateSave, "Mods").listFiles();
+        if (modSaves != null) {
+            for (File mod : modSaves) {
+                File[] files = mod.isDirectory() ? mod.listFiles() : null;
+                if (files == null || files.length == 0) {
+                    continue;
+                }
+                Uri sharedMod = ensureDirectory(saveParent, ensureDirectory(saveParent, sharedSave, "Mods"), mod.getName());
+                for (File file : files) {
+                    String name = file.getName().toLowerCase(Locale.ROOT);
+                    if (file.isFile() && (name.endsWith(".d2s") || name.endsWith(".look") || SAVE_FILES.contains(name))) {
+                        copyToDocument(saveParent, sharedMod, file);
+                    }
+                }
+            }
+        }
         exportLogs(tree, root);
     }
 
@@ -812,7 +970,12 @@ public final class D2NextActivity extends SDLActivity {
 
     private void copyFromDocument(Uri tree, Uri source, File destination) throws Exception {
         long size = documentSize(source);
-        if (destination.exists() && size >= 0 && destination.length() == size && size > 0) {
+        // Skip an explicitly empty character before opening the provider stream.
+        if (size == 0 && destination.getName().toLowerCase(Locale.ROOT).endsWith(".d2s")) {
+            return;
+        }
+        if (destination.exists() && size >= 0 && destination.length() == size && size > 0
+                && sameContent(source, destination)) {
             return;
         }
         File temporary = new File(destination.getPath() + ".importing");
@@ -830,26 +993,41 @@ public final class D2NextActivity extends SDLActivity {
             temporary.delete();
             throw e;
         }
-        if (destination.exists() && !destination.delete()) {
+        try {
+            SaveFileImport.finish(temporary, destination, size,
+                destination.getName().toLowerCase(Locale.ROOT).endsWith(".d2s"));
+        } catch (Exception error) {
             temporary.delete();
-            throw new IllegalStateException("Cannot replace " + destination.getName());
+            throw error;
         }
-        if (!temporary.renameTo(destination)) {
-            temporary.delete();
-            throw new IllegalStateException("Cannot save " + destination.getName());
+    }
+
+    private boolean sameContent(Uri document, File file) {
+        try (InputStream a = getContentResolver().openInputStream(document); InputStream b = new java.io.FileInputStream(file)) {
+            if (a == null) {
+                return false;
+            }
+            return SaveFileImport.sameContent(a, b);
+        } catch (Exception e) {
+            return false;
         }
     }
 
     private void copyToDocument(Uri tree, Uri parent, File source) throws Exception {
         Uri existing = findChild(tree, parent, source.getName());
-        if (existing != null && documentSize(existing) == source.length() && source.length() > 0) {
+        // The same size is not the same save (a character saved again often keeps its size): the bytes are compared.
+        if (existing != null && documentSize(existing) == source.length() && source.length() > 0 && sameContent(existing, source)) {
             return;
         }
-        if (existing != null && !DocumentsContract.deleteDocument(getContentResolver(), existing)) {
-            throw new IllegalStateException("Cannot replace " + source.getName());
+        // Written to a temporary document first, and only then put in place of the old copy: the app killed midway leaves
+        // the old copy whole (an empty copy would be imported over the character on the next start).
+        String temporaryName = source.getName() + ".exporting";
+        Uri stale = findChild(tree, parent, temporaryName);
+        if (stale != null) {
+            DocumentsContract.deleteDocument(getContentResolver(), stale);
         }
         Uri target = DocumentsContract.createDocument(getContentResolver(), asDocumentUri(tree, parent), "application/octet-stream",
-            source.getName());
+            temporaryName);
         if (target == null) {
             throw new IllegalStateException("Cannot create " + source.getName() + " in the selected folder");
         }
@@ -863,6 +1041,12 @@ public final class D2NextActivity extends SDLActivity {
                 output.write(buffer, 0, count);
             }
             output.flush();
+        }
+        if (existing != null && !DocumentsContract.deleteDocument(getContentResolver(), existing)) {
+            throw new IllegalStateException("Cannot replace " + source.getName());
+        }
+        if (DocumentsContract.renameDocument(getContentResolver(), target, source.getName()) == null) {
+            throw new IllegalStateException("Cannot rename " + temporaryName);
         }
     }
 
@@ -1135,6 +1319,17 @@ public final class D2NextActivity extends SDLActivity {
         return box;
     }
 
+    // The chosen mod for the game process (PlatformAndroid reads <private>/mod.txt after the launcher closes).
+    private void writeChosenMod() {
+        preferences().edit().putString(MOD, launcherMod).apply();
+        try (PrintWriter writer = new PrintWriter(
+                new OutputStreamWriter(new FileOutputStream(new File(privateRoot, "mod.txt")), StandardCharsets.UTF_8))) {
+            writer.print(launcherMod);
+        } catch (Exception e) {
+            Log.w("D2Next", "Could not write the chosen mod", e);
+        }
+    }
+
     private void writeViewZoom() {
         int zoom = Math.max(0, Math.min(ZOOM_LABELS.length - 1, launcherZoom));
         preferences().edit().putInt(VIEW_ZOOM, zoom).putBoolean(CHEATS, launcherCheats).apply();
@@ -1159,6 +1354,7 @@ public final class D2NextActivity extends SDLActivity {
         }
         values.put("viewzoom", Integer.toString(zoom));
         values.put("cheats", launcherCheats ? "1" : "0");
+        writeChosenMod();
         try (PrintWriter writer = new PrintWriter(
                 new OutputStreamWriter(new FileOutputStream(settings), StandardCharsets.UTF_8))) {
             for (Map.Entry<String, String> entry : values.entrySet()) {

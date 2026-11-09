@@ -208,6 +208,8 @@ struct D2ItemTypeCheckStrc
 	int nItemType;				//0x04
 };
 
+//1.10f: D2Common.0x6FDE3BA0
+//1.14d: 0x0074463C
 D2CalcCallbackInfoStrc off_6FDE3BA0[] =
 {
 	{ MISSILE_GetMinimum, 2},
@@ -215,12 +217,16 @@ D2CalcCallbackInfoStrc off_6FDE3BA0[] =
 	{ sub_6FD98220, 2},
 	{ sub_6FD982A0, 2},
 };
+//1.10f: D2Common.0x6FDE3BC0
+//1.14d: 0x0074465C
 int dword_6FDE3BC0 = ARRAY_SIZE(off_6FDE3BA0);
 
 //TODO: Find names
 
 
 
+//1.10f: D2Common.0x6FDE3160
+//1.14d: 0x00745B58
 static const D2PropertyAssignStrc stru_6FDE3160[] =
 {
 	{ sub_6FD92E80, STAT_ARMORCLASS },
@@ -516,10 +522,13 @@ static const PROPERTYASSIGNFN off_6FDE3920[] =
 	ITEMMODS_PropertyFunc36
 #endif
 };
+//1.10f: D2Common.0x6FDE39B0
+//1.14d: 0x00745B54
 static const int dword_6FDE39B0 = ARRAY_SIZE(off_6FDE3920);
 
 
 //D2Common.0x6FD92640 (#10844)
+//1.14d: 0x0065C7A0
 void __stdcall D2Common_10844_ITEMMODS_First(int nDataBits, int* pLayer, int* pValue)
 {
 	*pLayer = nDataBits & 511;
@@ -527,6 +536,7 @@ void __stdcall D2Common_10844_ITEMMODS_First(int nDataBits, int* pLayer, int* pV
 }
 
 //D2Common.0x6FD92670 (#10846)
+//1.14d: 0x0065C7D0
 void __stdcall D2Common_10846(int nDataBits, int* a2, int* a3, int* a4, int* a5)
 {
 	*a2 = nDataBits & 511;
@@ -536,6 +546,7 @@ void __stdcall D2Common_10846(int nDataBits, int* a2, int* a3, int* a4, int* a5)
 }
 
 //D2Common.0x6FD926C0 (#11293)
+//1.14d: 0x0065C820
 BOOL __stdcall ITEMMODS_GetItemCharges(D2UnitStrc* pItem, int nSkillId, int nSkillLevel, int* pValue, D2StatListStrc** ppStatList)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -602,68 +613,56 @@ BOOL __stdcall ITEMMODS_GetItemCharges(D2UnitStrc* pItem, int nSkillId, int nSki
 }
 
 //D2Common.0x6FD927D0 (#10847)
-BOOL __stdcall ITEMMODS_UpdateItemWithSkillCharges(D2UnitStrc* pItem, int nSkillId, int nSkillLevel, int a4)
+//1.14d: 0x0065C940
+BOOL __stdcall ITEMMODS_UpdateItemWithSkillCharges(D2UnitStrc* pItem, int nSkillId, int nSkillLevel, int nCharges)
 {
-	D2StatListStrc* pStatList = NULL;
-	D2UnitStrc* pSocketable = NULL;
-	int nShiftedValue = 0;
-	int nValue = 0;
-	int nLayer = 0;
-	uint8_t v11 = 0;
-
-	if (pItem && pItem->dwUnitType == UNIT_ITEM)
+	if (!pItem || pItem->dwUnitType != UNIT_ITEM)
 	{
-		nLayer = (nSkillLevel & sgptDataTables->nShiftedStuff) + (nSkillId << sgptDataTables->nStuff);
+		return FALSE;
+	}
 
-		pStatList = STATLIST_GetStatListFromUnitAndFlag(pItem, 0x40);
-		while (pStatList)
+	const int nLayer = (nSkillLevel & sgptDataTables->nShiftedStuff) + (nSkillId << sgptDataTables->nStuff);
+
+	int nValue = 0;
+	D2StatListStrc* pStatList = STATLIST_GetStatListFromUnitAndFlag(pItem, STATLIST_MAGIC);
+	while (pStatList)
+	{
+		nValue = STATLIST_GetStatValue(pStatList, STAT_ITEM_CHARGED_SKILL, nLayer);
+		if (nValue)
 		{
-			nValue = STATLIST_GetStatValue(pStatList, STAT_ITEM_CHARGED_SKILL, nLayer);
-			if (nValue)
-			{
-				break;
-			}
-			pStatList = STATLIST_GetStatListFromFlag(pStatList, 0x40);
+			break;
 		}
 
-		if (pStatList)
+		pStatList = STATLIST_GetStatListFromFlag(pStatList, STATLIST_MAGIC);
+	}
+
+	if (pStatList)
+	{
+		const int nMaxCharges = nValue >> 8;
+		if (nMaxCharges <= 0 || nMaxCharges > 255)
 		{
-			nShiftedValue = nValue >> 8;
-			if (nShiftedValue > 0 && nShiftedValue <= 255)
-			{
-				v11 = a4;
-
-				if (v11 < 0)
-				{
-					v11 = 0;
-				}
-
-				if (v11 >= nShiftedValue)
-				{
-					v11 = nShiftedValue;
-				}
-
-				STATLIST_SetBaseStat2(pStatList, STAT_ITEM_CHARGED_SKILL, v11 + (nShiftedValue << 8), nLayer, pItem);
-				return TRUE;
-			}
-
 			return FALSE;
 		}
 
-		if (pItem->pInventory)
+		int32_t nNewCharges = nCharges;
+		if (nNewCharges < 0)
 		{
-			pSocketable = INVENTORY_GetFirstItem(pItem->pInventory);
-			while (pSocketable)
-			{
-				if (ITEMMODS_UpdateItemWithSkillCharges(INVENTORY_UnitIsItem(pSocketable), nSkillId, nSkillLevel, a4))
-				{
-					break;
-				}
+			nNewCharges = 0;
+		}
+		else if (nNewCharges > nMaxCharges)
+		{
+			nNewCharges = nMaxCharges;
+		}
 
-				pSocketable = INVENTORY_GetNextItem(pSocketable);
-			}
+		STATLIST_SetBaseStat2(pStatList, STAT_ITEM_CHARGED_SKILL, (nMaxCharges << 8) + nNewCharges, nLayer, pItem);
+		return TRUE;
+	}
 
-			if (pSocketable)
+	if (pItem->pInventory)
+	{
+		for (D2UnitStrc* pSocketable = INVENTORY_GetFirstItem(pItem->pInventory); pSocketable; pSocketable = INVENTORY_GetNextItem(pSocketable))
+		{
+			if (ITEMMODS_UpdateItemWithSkillCharges(INVENTORY_UnitIsItem(pSocketable), nSkillId, nSkillLevel, nCharges))
 			{
 				return TRUE;
 			}
@@ -674,6 +673,7 @@ BOOL __stdcall ITEMMODS_UpdateItemWithSkillCharges(D2UnitStrc* pItem, int nSkill
 }
 
 //D2Common.0x6FD928D0 (#10843)
+//1.14d: 0x0065CA30
 int __stdcall ITEMMODS_GetByTimeAdjustment(int nAmount, int nPeriodOfDay, int nBaseTime, int* pItemModPeriodOfDay, int* pItemModMin, int* pItemModMax)
 {
 	// Time works in a cycle of 360 degrees. Each unit is 1 degree.
@@ -752,12 +752,14 @@ int __stdcall ITEMMODS_GetByTimeAdjustment(int nAmount, int nPeriodOfDay, int nB
 }
 
 //D2Common.0x6FD929A0 (#10849)
+//1.14d: 0x0065CB00
 int __stdcall D2Common_10849(int a1, int a2)
 {
 	return a1 + (a2 << 9);
 }
 
 //D2Common.0x6FD929B0 (#10845)
+//1.14d: 0x0065CB10
 void __stdcall D2Common_10845(int nDataBits, int* a2, int* a3, int* a4)
 {
 	*a2 = nDataBits & 511;
@@ -766,12 +768,14 @@ void __stdcall D2Common_10845(int nDataBits, int* a2, int* a3, int* a4)
 }
 
 //D2Common.0x6FD929E0 (#10850)
+//1.14d: 0x0065CB40
 int __stdcall D2Common_10850(int a1, int a2, int a3)
 {
 	return a1 + ((a2 + 32 * a3) << 9);
 }
 
 //D2Common.0x6FD92A00 (#10848)
+//1.14d: 0x0065CB60
 void __stdcall D2Common_10848(int nDataBits, int* pClass, int* pTab, int* pLevel)
 {
 	D2_ASSERT(pClass && pTab && pLevel);
@@ -782,12 +786,14 @@ void __stdcall D2Common_10848(int nDataBits, int* pClass, int* pTab, int* pLevel
 }
 
 //D2Common.0x6FD92A60 (#10851)
+//1.14d: 0x0065CBD0
 int __stdcall D2Common_10851(int a1, int a2, int a3)
 {
 	return a2 + 3 * a1 + 32 * a3;
 }
 
 //D2Common.0x6FD92A80
+//1.14d: 0x0065D110
 BOOL __fastcall sub_6FD92A80(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -836,6 +842,7 @@ BOOL __fastcall sub_6FD92A80(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD92C40
+//1.14d: 0x0065CBF0
 D2StatListStrc* __fastcall ITEMMODS_GetOrCreateStatList(D2UnitStrc* pUnit, D2UnitStrc* pItem, int nState, int fFilter)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -885,6 +892,7 @@ D2StatListStrc* __fastcall ITEMMODS_GetOrCreateStatList(D2UnitStrc* pUnit, D2Uni
 }
 
 //D2Common.0x6FD92CF0
+//1.14d: 0x0065CCC0
 void __fastcall sub_6FD92CF0(D2UnitStrc* pItem, int nStatId)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -959,12 +967,14 @@ void __fastcall sub_6FD92CF0(D2UnitStrc* pItem, int nStatId)
 }
 
 //D2Common.0x6FD92E80
+//1.14d: 0x0065D1C0
 BOOL __fastcall sub_6FD92E80(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	return sub_6FD92EB0(nType, pUnit, pItem, pProperty, nStatId, nApplyType, 0, nState, fStatList, a9);
 }
 
 //D2Common.0x6FD92EB0
+//1.14d: 0x0065CF40
 BOOL __fastcall sub_6FD92EB0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int a7, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -1064,6 +1074,7 @@ BOOL __fastcall sub_6FD92EB0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD93170
+//1.14d: 0x0065D220
 BOOL __fastcall sub_6FD93170(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2_ASSERT(pProperty);
@@ -1075,6 +1086,7 @@ BOOL __fastcall sub_6FD93170(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD931C0
+//1.14d: 0x0065D270
 BOOL __fastcall sub_6FD931C0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	if (!a9 || a9->dwUnitType != UNIT_ITEM)
@@ -1092,12 +1104,14 @@ BOOL __fastcall sub_6FD931C0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD93200
+//1.14d: 0x0065D2B0
 BOOL __fastcall sub_6FD93200(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	return sub_6FD92EB0(nType, pUnit, pItem, pProperty, nStatId, nApplyType, 1, nState, fStatList, a9);
 }
 
 //D2Common.0x6FD93230
+//1.14d: 0x0065D310
 BOOL __fastcall sub_6FD93230(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	int nPossibleRolls = 0;
@@ -1155,6 +1169,7 @@ BOOL __fastcall sub_6FD93230(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD93410
+//1.14d: 0x0065D070
 BOOL __fastcall sub_6FD93410(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, int a4, int nStatId, int nApplyType, int a7, int nState, int fStatList, D2UnitStrc* a10)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -1202,6 +1217,7 @@ BOOL __fastcall sub_6FD93410(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, in
 }
 
 //D2Common.0x6FD935B0
+//1.14d: 0x0065D4B0
 BOOL __fastcall sub_6FD935B0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	int nPossibleRolls = 0;
@@ -1258,6 +1274,7 @@ BOOL __fastcall sub_6FD935B0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD93790
+//1.14d: 0x0065D650
 BOOL __fastcall sub_6FD93790(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -1378,6 +1395,7 @@ BOOL __fastcall sub_6FD93790(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD93A20
+//1.14d: 0x0065D7D0
 BOOL __fastcall sub_6FD93A20(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -1498,6 +1516,7 @@ BOOL __fastcall sub_6FD93A20(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD93CB0
+//1.14d: 0x0065D950
 BOOL __fastcall sub_6FD93CB0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -1629,6 +1648,7 @@ BOOL __fastcall sub_6FD93CB0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD94060
+//1.14d: 0x0065CE40
 void __fastcall sub_6FD94060(int nStatId, int* pValue)
 {
 	switch (nStatId)
@@ -1650,6 +1670,7 @@ void __fastcall sub_6FD94060(int nStatId, int* pValue)
 }
 
 //D2Common.0x6FD94160
+//1.14d: 0x0065DB90
 BOOL __fastcall sub_6FD94160(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	sub_6FD92EB0(nType, pUnit, pItem, pProperty, STAT_ITEM_ALLSKILLS, nApplyType, 0, nState, fStatList, a9);
@@ -1658,6 +1679,7 @@ BOOL __fastcall sub_6FD94160(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD94190
+//1.14d: 0x0065DBC0
 BOOL __fastcall sub_6FD94190(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -1769,6 +1791,7 @@ BOOL __fastcall sub_6FD94190(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD943C0
+//1.14d: 0x0065DD80
 BOOL __fastcall sub_6FD943C0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -1797,6 +1820,7 @@ BOOL __fastcall sub_6FD943C0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD944E0
+//1.14d: 0x0065DE40
 BOOL __fastcall sub_6FD944E0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -1990,6 +2014,7 @@ BOOL __fastcall sub_6FD944E0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD94AB0
+//1.14d: 0x0065E070
 BOOL __fastcall sub_6FD94AB0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -2075,6 +2100,7 @@ BOOL __fastcall sub_6FD94AB0(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD94E80
+//1.14d: 0x0065E170
 BOOL __fastcall sub_6FD94E80(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -2126,6 +2152,7 @@ BOOL __fastcall sub_6FD94E80(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD94F70
+//1.14d: 0x0065E230
 BOOL __fastcall sub_6FD94F70(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -2172,6 +2199,7 @@ BOOL __fastcall sub_6FD94F70(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD95050
+//1.14d: 0x0065E2D0
 BOOL __fastcall sub_6FD95050(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -2253,12 +2281,14 @@ BOOL __fastcall sub_6FD95050(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD95200
+//1.14d: 0x0065E440
 BOOL __fastcall sub_6FD95200(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	return 1;
 }
 
 //D2Common.0x6FD95210
+//1.14d: 0x0065E450
 BOOL __fastcall sub_6FD95210(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nStatId, int nApplyType, int nState, int fStatList, D2UnitStrc* a9)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -2326,8 +2356,11 @@ BOOL __fastcall sub_6FD95210(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD95430 (#10855)
+//1.14d: 0x0065FEC0
 void __stdcall ITEMMODS_AssignProperty(int nType, D2UnitStrc* a2, D2UnitStrc* pItem, const void* pMods, int nPropSet, int nApplyType)
 {
+	//1.10f: D2Common.0x6FDD146C
+	//1.14d: 0x006EDB5C
 	static const int dword_6FDD146C[] =
 	{
 		STATLIST_MAGIC,
@@ -2339,6 +2372,8 @@ void __stdcall ITEMMODS_AssignProperty(int nType, D2UnitStrc* a2, D2UnitStrc* pI
 		STATLIST_MAGIC | STATLIST_SET,
 	};
 
+	//1.10f: D2Common.0x6FDD1488
+	//1.14d: 0x006EDB40
 	static const int dword_6FDD1488[] =
 	{
 		0,
@@ -2507,6 +2542,7 @@ void __stdcall ITEMMODS_AssignProperty(int nType, D2UnitStrc* a2, D2UnitStrc* pI
 }
 
 //D2Common.0x6FD95810
+//1.14d: 0x0065FE10
 void __fastcall sub_6FD95810(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const void* pMods, int nIndex, int nPropSet, int nApplyType, const D2PropertyStrc* pProperty, int nState, int fStatlist, D2UnitStrc* a11)
 {
 	if (ITEMS_GetItemFormat(pItem) < 1)
@@ -2528,6 +2564,7 @@ void __fastcall sub_6FD95810(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, co
 }
 
 //D2Common.0x6FD958D0 (#10865)
+//1.14d: 0x0065E4D0
 void __stdcall ITEMMODS_ApplyEthereality(D2UnitStrc* pItem)
 {
 	D2_ASSERT(pItem);
@@ -2551,6 +2588,7 @@ void __stdcall ITEMMODS_ApplyEthereality(D2UnitStrc* pItem)
 
 //1.10f:D2Common.0x6FD959F0 (#10867)
 //1.11: D2Common.0x6FDA3570(#11129)
+//1.14d: 0x006600A0
 BOOL __stdcall ITEMMODS_UpdateRuneword(D2UnitStrc* pUnit, D2UnitStrc* pItem, int nUnused)
 {
 	D2_MAYBE_UNUSED(nUnused);
@@ -2581,8 +2619,11 @@ BOOL __stdcall ITEMMODS_UpdateRuneword(D2UnitStrc* pUnit, D2UnitStrc* pItem, int
 }
 
 //D2Common.0x6FD95A70
+//1.14d: 0x00660120
 void __fastcall ITEMMODS_UpdateFullSetBoni(D2UnitStrc* pUnit, D2UnitStrc* pItem, int nState)
 {
+	//1.10f: D2Common.0x6FDD14A8
+	//1.14d: 0x006EDA40
 	static const int dword_6FDD14A8[] =
 	{
 		0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
@@ -2653,6 +2694,7 @@ void __fastcall ITEMMODS_UpdateFullSetBoni(D2UnitStrc* pUnit, D2UnitStrc* pItem,
 }
 
 //D2Common.0x6FD95BE0 (#10859)
+//1.14d: 0x0065E620
 BOOL __stdcall ITEMMODS_CanItemHaveMagicAffix(D2UnitStrc* pItem, const D2MagicAffixTxt* pMagicAffixTxtRecord)
 {
 	D2PropertiesTxt* pPropertiesTxtRecord = NULL;
@@ -2661,8 +2703,11 @@ BOOL __stdcall ITEMMODS_CanItemHaveMagicAffix(D2UnitStrc* pItem, const D2MagicAf
 	{
 		if (ITEMS_CheckIfSocketable(pItem) && ITEMS_GetMaxSockets(pItem) || pMagicAffixTxtRecord->pProperties[0].nProperty < 0 || pMagicAffixTxtRecord->pProperties[0].nProperty < sgptDataTables->nPropertiesTxtRecordCount)
 		{
-			pPropertiesTxtRecord = &sgptDataTables->pPropertiesTxt[pMagicAffixTxtRecord->pProperties[0].nProperty];
-			if (pPropertiesTxtRecord && pPropertiesTxtRecord->wStat[0] != STAT_ITEM_NUMSOCKETS)
+			// The game reads pPropertiesTxt[-1] for an affix with no property (memory before the table, never the
+			// sockets stat); an affix with no property is not a sockets affix, without that read.
+			const int nProperty = pMagicAffixTxtRecord->pProperties[0].nProperty;
+			pPropertiesTxtRecord = nProperty >= 0 ? &sgptDataTables->pPropertiesTxt[nProperty] : NULL;
+			if (!pPropertiesTxtRecord || pPropertiesTxtRecord->wStat[0] != STAT_ITEM_NUMSOCKETS)
 			{
 				for (int i = 0; i < ARRAY_SIZE(pMagicAffixTxtRecord->wEType); ++i)
 				{
@@ -2697,6 +2742,7 @@ BOOL __stdcall ITEMMODS_CanItemHaveMagicAffix(D2UnitStrc* pItem, const D2MagicAf
 }
 
 //D2Common.0x6FD95CC0 (#10860)
+//1.14d: 0x0065E710
 BOOL __stdcall ITEMMODS_CanItemHaveRareAffix(D2UnitStrc* pItem, D2RareAffixTxt* pRareAffixTxtRecord)
 {
 	if ((ITEMS_GetItemFormat(pItem) >= 100 || !ITEMS_CheckIfStackable(pItem) && !ITEMS_CheckIfThrowable(pItem)) && (pRareAffixTxtRecord->wVersion < 100 || ITEMS_GetItemFormat(pItem) >= 100))
@@ -2732,6 +2778,7 @@ BOOL __stdcall ITEMMODS_CanItemHaveRareAffix(D2UnitStrc* pItem, D2RareAffixTxt* 
 }
 
 //D2Common.0x6FD95D60 (#10861)
+//1.14d: 0x0065E7D0
 BOOL __stdcall ITEMMODS_CanItemBeHighQuality(D2UnitStrc* pItem, D2QualityItemsTxt* pQualityItemsTxtRecord)
 {
 	D2ItemTypeCheckStrc pItemTypeCheck[9] =
@@ -2769,8 +2816,11 @@ BOOL __stdcall ITEMMODS_CanItemBeHighQuality(D2UnitStrc* pItem, D2QualityItemsTx
 }
 
 //D2Common.0x6FD95E90 (#10862)
+//1.14d: 0x0065E8E0
 void __stdcall ITEMMODS_SetRandomElixirFileIndex(D2UnitStrc* pItem)
 {
+	//1.10f: D2Common.0x6FDE3900
+	//1.14d: 0x0074638C
 	static const uint32_t dwFileIndex[] =
 	{
 		0, 1, 2, 3, 9, 7
@@ -2825,6 +2875,7 @@ int __fastcall ITEMMODS_RollRandomValueInRange(D2UnitStrc* pItem, int nMin, int 
 }
 
 //D2Common.0x6FD95FC0
+//1.14d: 0x0065EB30
 int __fastcall ITEMMODS_PropertyFunc01(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -2874,6 +2925,7 @@ int __fastcall ITEMMODS_PropertyFunc01(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD96110
+//1.14d: 0x0065EA50
 int __fastcall ITEMMODS_AddPropertyToItemStatList(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* pUnused)
 {
 	D2_MAYBE_UNUSED(pUnused);
@@ -2920,6 +2972,7 @@ int __fastcall ITEMMODS_AddPropertyToItemStatList(int nType, D2UnitStrc* pUnit, 
 }
 
 //D2Common.0x6FD96210
+//1.14d: 0x0065EBA0
 int __fastcall ITEMMODS_PropertyFunc02(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -2969,6 +3022,7 @@ int __fastcall ITEMMODS_PropertyFunc02(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD96350
+//1.14d: 0x0065EC10
 int __fastcall ITEMMODS_PropertyFunc03(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -3022,6 +3076,7 @@ int __fastcall ITEMMODS_PropertyFunc03(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD964A0
+//1.14d: 0x0065EC80
 int __fastcall ITEMMODS_PropertyFunc04(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -3075,6 +3130,7 @@ int __fastcall ITEMMODS_PropertyFunc04(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD965F0
+//1.14d: 0x0065ECF0
 int __fastcall ITEMMODS_PropertyFunc05(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -3197,6 +3253,7 @@ int __fastcall ITEMMODS_PropertyFunc05(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD96880
+//1.14d: 0x0065EE80
 int __fastcall ITEMMODS_PropertyFunc06(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -3325,6 +3382,7 @@ int __fastcall ITEMMODS_PropertyFunc06(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD96B00
+//1.14d: 0x0065F010
 int __fastcall ITEMMODS_PropertyFunc07(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	D2ItemsTxt* pItemsTxtRecord = NULL;
@@ -3405,7 +3463,7 @@ int __fastcall ITEMMODS_PropertyFunc07(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 			nMaxDamage = pItemsTxtRecord->nMaxDam;
 		}
 
-		nBonus = nMin * (long long int)nMaxDamage / 100;
+		nBonus = DATATBLS_ApplyRatio(nMaxDamage, nMin, 100);
 
 		if (ITEMS_CheckItemTypeId(pItem, ITEMTYPE_WEAPON) && nMaxDamage + nBonus <= nMaxDamage)
 		{
@@ -3423,6 +3481,7 @@ int __fastcall ITEMMODS_PropertyFunc07(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD96DA0
+//1.14d: 0x0065F2B0
 int __fastcall ITEMMODS_PropertyFunc08(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -3471,6 +3530,7 @@ int __fastcall ITEMMODS_PropertyFunc08(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD96EE0
+//1.14d: 0x0065F310
 int __fastcall ITEMMODS_PropertyFunc09(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -3529,6 +3589,7 @@ int __fastcall ITEMMODS_PropertyFunc09(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97040
+//1.14d: 0x0065F390
 int __fastcall ITEMMODS_PropertyFunc24(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -3577,6 +3638,7 @@ int __fastcall ITEMMODS_PropertyFunc24(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97180
+//1.14d: 0x0065F3F0
 int __fastcall ITEMMODS_PropertyFunc10(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -3631,6 +3693,7 @@ int __fastcall ITEMMODS_PropertyFunc10(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD972E0
+//1.14d: 0x0065F470
 int __fastcall ITEMMODS_PropertyFunc11(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nStatValue = 0;
@@ -3699,6 +3762,7 @@ int __fastcall ITEMMODS_PropertyFunc11(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97430
+//1.14d: 0x0065F590
 int __fastcall ITEMMODS_PropertyFunc14(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nAllowedMaxSockets = 0;
@@ -3783,6 +3847,7 @@ int __fastcall ITEMMODS_PropertyFunc14(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD975F0
+//1.14d: 0x0065F6A0
 int __fastcall ITEMMODS_PropertyFunc19(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -3894,6 +3959,7 @@ int __fastcall ITEMMODS_PropertyFunc19(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97830
+//1.14d: 0x0065F870
 int __fastcall ITEMMODS_PropertyFunc18(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -3958,6 +4024,7 @@ int __fastcall ITEMMODS_PropertyFunc18(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97920
+//1.14d: 0x0065F960
 int __fastcall ITEMMODS_PropertyFunc15(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	if (pProperty)
@@ -3978,6 +4045,7 @@ int __fastcall ITEMMODS_PropertyFunc15(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD979A0
+//1.14d: 0x0065F9D0
 int __fastcall ITEMMODS_PropertyFunc16(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	if (pProperty)
@@ -3998,6 +4066,7 @@ int __fastcall ITEMMODS_PropertyFunc16(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97A20
+//1.14d: 0x0065FA40
 int __fastcall ITEMMODS_PropertyFunc17(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -4062,6 +4131,7 @@ int __fastcall ITEMMODS_PropertyFunc17(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97BA0
+//1.14d: 0x0065FAE0
 int __fastcall ITEMMODS_PropertyFunc20(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	D2StatListStrc* pStatList = NULL;
@@ -4080,6 +4150,7 @@ int __fastcall ITEMMODS_PropertyFunc20(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97C20
+//1.14d: 0x0065FB50
 int __fastcall ITEMMODS_PropertyFunc21(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -4141,6 +4212,7 @@ int __fastcall ITEMMODS_PropertyFunc36(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 
 //D2Common.0x6FD97D50
 //TODO: nLayer always (in all functions and structs) 16 Bit, i.e. uint16_t??
+//1.14d: 0x0065FBF0
 int __fastcall ITEMMODS_PropertyFunc22(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -4185,6 +4257,7 @@ int __fastcall ITEMMODS_PropertyFunc22(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97E80
+//1.14d: 0x0065FC40
 int __fastcall ITEMMODS_PropertyFunc12(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nPossibleRolls = 0;
@@ -4229,6 +4302,7 @@ int __fastcall ITEMMODS_PropertyFunc12(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD97FB0
+//1.14d: 0x0065FC90
 int __fastcall ITEMMODS_PropertyFunc13(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	int nMaxDurability = 0;
@@ -4292,6 +4366,7 @@ int __fastcall ITEMMODS_PropertyFunc13(int nType, D2UnitStrc* pUnit, D2UnitStrc*
 }
 
 //D2Common.0x6FD98120
+//1.14d: 0x0065FD20
 int __fastcall ITEMMODS_PropertyFunc23(int nType, D2UnitStrc* pUnit, D2UnitStrc* pItem, const D2PropertyStrc* pProperty, int nSet, short nStatId, int nLayer, int nValue, int nState, int fStatList, D2UnitStrc* a11)
 {
 	if (pProperty && pItem && pItem->dwUnitType == UNIT_ITEM && !ITEMS_IsEthereal(pItem) && ITEMS_HasDurability(pItem))
@@ -4342,6 +4417,7 @@ void __stdcall D2COMMON_11292_ItemAssignProperty(int nType, D2UnitStrc* pUnit, D
 
 //D2Common.0x6FD98220
 //TODO: a4, v5
+//1.14d: 0x00627B70
 int __fastcall sub_6FD98220(int nMin, int nMax, int nUnused, void* pUserData)
 {
 	D2_MAYBE_UNUSED(nUnused);
@@ -4362,6 +4438,7 @@ int __fastcall sub_6FD98220(int nMin, int nMax, int nUnused, void* pUserData)
 }
 
 //D2Common.0x6FD982A0
+//1.14d: 0x00627BB0
 int __fastcall sub_6FD982A0(int nStatId, int a2, int nUnused, void* pUserData)
 {
 	D2_MAYBE_UNUSED(nUnused);
@@ -4399,6 +4476,7 @@ static int __fastcall ITEMMODS_GetCalcParamValue_Return0(int, void*)
 }
 
 //D2Common.0x6FD98300 (#11300)
+//1.14d: 0x00627C20
 int __stdcall ITEMMODS_EvaluateItemFormula(D2UnitStrc* pUnit, D2UnitStrc* pItem, unsigned int nCalc)
 {
 	D2ItemCalcStrc pItemCalc = {};

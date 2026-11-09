@@ -1,10 +1,22 @@
 #include "SkillVisuals.h"
+#include "HeroCryState.h"
 #include <iostream>
 #include <stdexcept>
 
 static void require(bool value,const char* message){if(!value)throw std::runtime_error(std::string("Skill visual test failed: ")+message);}
 
 int main(){try{
+    d2::HeroCryState cries;
+    require(cries.observe(1,false)==d2::HeroCry::None,"incomplete snapshot emitted a cry");
+    require(cries.observe(0,true)==d2::HeroCry::None,"first valid dead snapshot emitted stale death cry");
+    require(cries.observe(0,true)==d2::HeroCry::None,"unchanged death repeated cry");
+    require(cries.observe(1,true)==d2::HeroCry::None,"standing emitted cry");
+    require(cries.observe(4,true)==d2::HeroCry::Hit,"real hit lost its cry");
+    require(cries.observe(4,true)==d2::HeroCry::None,"held hit repeated cry");
+    require(cries.observe(0,true)==d2::HeroCry::Death,"real death lost its cry");
+    require(cries.observe(1,false)==d2::HeroCry::None&&cries.observe(0,true)==d2::HeroCry::None,"invalid snapshot retained old mode");
+    cries=d2::HeroCryState{};
+    require(cries.observe(0,true)==d2::HeroCry::None,"new session retained old mode");
     uint8_t frame=255;
     frame=d2::nextLeapSequenceFrame(frame,true,18);require(frame==5,"Leap begins with original takeoff frame 6");
     for(int i=0;i<10;++i)frame=d2::nextLeapSequenceFrame(frame,true,18);
@@ -25,6 +37,6 @@ int main(){try{
     require(d2::leapSequenceMode(d2::skillLeap,11)==13&&d2::leapSequenceMode(d2::skillLeapAttack,11)==13,"the jump draws S1");
     require(d2::leapSequenceMode(d2::skillLeapAttack,15)==7,"Leap Attack's strike draws A1");
     require(d2::leapSequenceMode(d2::skillLeap-1,3)==-1,"other skills keep skills.txt's mode");
-    std::cout<<"PASS: Leap arc, Leap Attack landing and strike frames\n";
+    std::cout<<"PASS: hero cry initial/death/hit/reset transitions; Leap arc, Leap Attack landing and strike frames\n";
     return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

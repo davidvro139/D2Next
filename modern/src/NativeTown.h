@@ -19,6 +19,9 @@ struct NativeTown {
 // Experimental bridge to this repository's x64 DLL layouts. Returns owned data;
 // all native resources are released before returning. The scene covers the given levels of one act (they must lie
 // in one connected area, e.g. a town and the wilderness around it).
+// Pixel bytes of the decoded tiles held by any scene, counting a tile shared between scenes once.
+size_t sharedTilePixelBytes();
+size_t tileFileBytes(); // DT1 files of the act held in memory
 NativeTown loadNativeTown(const std::filesystem::path& dllDirectory,
     const std::filesystem::path& gameDirectory, const Archives& archives, uint32_t seed,
     const std::vector<int>& levelIds={1},bool withNeighbours=false,

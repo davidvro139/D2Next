@@ -18,7 +18,7 @@ int main(int argc,char** argv){try {
         // The rows actually drawn (alpha above zero), relative to the feet.
         int top=1<<30,bottom=-(1<<30);
         for(uint32_t y=0;y<frame.image.height;++y)for(uint32_t x=0;x<frame.image.width;++x)
-            if(frame.image.rgba[(size_t(y)*frame.image.width+x)*4+3]){top=std::min(top,frame.y+int(y));bottom=std::max(bottom,frame.y+int(y));}
+            if(frame.image.alpha(size_t(y)*frame.image.width+x)){top=std::min(top,frame.y+int(y));bottom=std::max(bottom,frame.y+int(y));}
         std::cout<<"frame "<<f<<": drawn rows "<<top<<" to "<<bottom<<" (0 = the feet; negative is up)\n";
     }
     return 0;

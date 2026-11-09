@@ -21,6 +21,8 @@ public:
     // Writes the frame drawn so far as a 32-bit BMP (when the path is not empty); returns how many pixels differ from the
     // top-left one.
     virtual size_t readback(const std::filesystem::path& file)=0;
+    struct CacheStats {size_t images=0,rgbaBytes=0;bool available=false;};
+    virtual CacheStats cacheStats() const {return {};} // RGBA payload estimate, excluding driver overhead
     virtual void forgetTextures()=0;
     virtual void forgetTexture(const Image* image)=0;
     // Drawing without a graphics card (Direct3D's WARP), as tests may ask.

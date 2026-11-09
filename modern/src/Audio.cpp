@@ -1,4 +1,5 @@
 // Sounds and music: WAVE files decoded here, played through winmm (Win32 build) or SDL3 audio streams (SDL build).
+#include <atomic>
 #include "Audio.h"
 #ifdef D2MODERN_SDL
 #include <SDL3/SDL.h>
@@ -16,12 +17,54 @@
 #include <mutex>
 #include <thread>
 namespace d2 {
-// Reads music tracks on its own thread with its own archive handles, so the game never waits for a track.
+// A streamed track: the loader keeps a few one-second pieces of its PCM ready, wrapping at its end; the voice takes them.
+struct Audio::Streamed {
+    std::unique_ptr<Archives::Piecewise> file; // used only on the loader's thread
+    uint32_t start=0,size=0,next=0,chunk=0;
+    std::mutex lock;std::deque<Bytes> pieces;
+    std::atomic<bool> abandoned{false}; // its sound is gone: the loader closes the file on its own thread (StormLib)
+    // On the loader's thread: tops up to three pieces.
+    void fill() {
+        for(;;) {
+            {std::lock_guard<std::mutex> hold(lock);if(pieces.size()>=3)return;}
+            Bytes piece=file->read(start+next,std::min(chunk,size-next));
+            if(piece.empty())return;
+            next+=uint32_t(piece.size());if(next>=size)next=0;
+            std::lock_guard<std::mutex> hold(lock);pieces.push_back(std::move(piece));
+        }
+    }
+    // The WAVE header of a file opened piecewise: format and where the PCM is (false when not 16-bit PCM).
+    static bool header(Archives::Piecewise& file,Sound& out,uint32_t& start,uint32_t& size) {
+        const Bytes head=file.read(0,4096);
+        if(head.size()<12||std::memcmp(head.data(),"RIFF",4)||std::memcmp(head.data()+8,"WAVE",4))return false;
+        bool haveFormat=false;
+        for(size_t p=12;p+8<=head.size();) {
+            const uint32_t n=uint32_t(head[p+4])|(uint32_t(head[p+5])<<8)|(uint32_t(head[p+6])<<16)|(uint32_t(head[p+7])<<24);
+            if(!std::memcmp(&head[p],"fmt ",4)&&n>=16&&p+8+16<=head.size()) {
+                if((head[p+8]|(head[p+9]<<8))!=1)return false;
+                out.channels=uint16_t(head[p+10]|(head[p+11]<<8));
+                out.rate=uint32_t(head[p+12])|(uint32_t(head[p+13])<<8)|(uint32_t(head[p+14])<<16)|(uint32_t(head[p+15])<<24);
+                out.bits=uint16_t(head[p+22]|(head[p+23]<<8));haveFormat=true;
+            } else if(!std::memcmp(&head[p],"data",4)&&haveFormat) {
+                start=uint32_t(p+8);size=std::min(n,file.size()-start);
+                const uint32_t frame=out.channels*2u;size-=size%std::max(frame,1u);
+                out.size=size;
+                return size>0&&out.channels>0&&out.channels<=2&&out.bits==16;
+            }
+            p+=8+n+(n&1);
+        }
+        return false;
+    }
+    Bytes take(){std::lock_guard<std::mutex> hold(lock);if(pieces.empty())return {};Bytes p=std::move(pieces.front());pieces.pop_front();return p;}
+};
+// Reads music tracks on its own thread with its own archive handles, so the game never waits for a track. In the SDL build
+// a track is streamed (one is tens of MB decoded): the thread keeps each playing track's next pieces ready.
 struct Audio::Loader {
     std::filesystem::path root;
     std::mutex lock;std::condition_variable wake;
     std::deque<std::string> wanted;                                   // tracks to read, in order
     std::vector<std::pair<std::string,std::shared_ptr<Sound>>> ready; // read and decoded, not yet taken by the game
+    std::vector<std::unique_ptr<Streamed>> streams;                   // loader thread only
     bool stop=false;
     std::thread thread;
     explicit Loader(std::filesystem::path folder):root(std::move(folder)) {
@@ -36,15 +79,31 @@ struct Audio::Loader {
             std::string path;
             {
                 std::unique_lock<std::mutex> hold(lock);
-                wake.wait(hold,[&]{return stop||!wanted.empty();});
+                wake.wait_for(hold,std::chrono::milliseconds(100),[&]{return stop||!wanted.empty();});
                 if(stop)return;
-                path=wanted.front();wanted.pop_front();
+                if(!wanted.empty()){path=wanted.front();wanted.pop_front();}
             }
+            std::erase_if(streams,[](const auto& s){return s->abandoned.load();});
+            for(const auto& s:streams)s->fill();
+            if(path.empty())continue;
             auto sound=std::make_shared<Sound>();
             const auto started=std::chrono::steady_clock::now();
             try {
                 if(!archives)archives=std::make_unique<Archives>(root);
+#ifdef D2MODERN_SDL
+                auto streamed=std::make_unique<Streamed>();
+                streamed->file=archives->open(path);
+                if(!streamed->file||!Streamed::header(*streamed->file,*sound,streamed->start,streamed->size))sound.reset();
+                else {
+                    streamed->chunk=sound->rate*sound->channels*2u;
+                    streamed->fill();
+                    // The sound only flags the stream when it goes; the stream itself is the loader's.
+                    sound->streamed=std::shared_ptr<Streamed>(streamed.get(),[](Streamed* s){s->abandoned=true;});
+                    streams.push_back(std::move(streamed));
+                }
+#else
                 if(!Audio::decode(archives->read(path),*sound))sound.reset();
+#endif
             } catch(const std::exception&) {sound.reset();}
             if(std::getenv("D2MODERN_SOUND_LOG"))std::cout<<"Music loaded in the background: "<<path<<(sound?"":" (failed)")<<", "
                 <<std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count()<<" ms"<<std::endl;
@@ -58,13 +117,31 @@ struct Audio::Voice {
     SDL_AudioStream* stream=nullptr;std::shared_ptr<Sound> sound;bool loop=false;
     ~Voice(){if(stream)SDL_DestroyAudioStream(stream);}
     bool done() const {return !loop&&SDL_GetAudioStreamQueued(stream)==0;}
-    void keep(){if(loop&&SDL_GetAudioStreamQueued(stream)<int(sound->size/2))SDL_PutAudioStreamData(stream,sound->data,int(sound->size));}
+    // A looping sound is fed about a second at a time, wrapping at its end, so the stream never holds a copy of all of it.
+    uint32_t next=0;
+    uint32_t chunk() const {const uint32_t frame=sound->channels*2u;return std::max(frame,sound->rate*frame);}
+    void feed() {
+        if(sound->streamed) {
+            while(SDL_GetAudioStreamQueued(stream)<int(chunk())) {
+                const Bytes piece=sound->streamed->take();
+                if(piece.empty())return; // the loader is behind: it tops up within 100 ms
+                SDL_PutAudioStreamData(stream,piece.data(),int(piece.size()));
+            }
+            return;
+        }
+        while(SDL_GetAudioStreamQueued(stream)<int(chunk())) {
+            const uint32_t n=std::min(chunk(),sound->size-next);
+            SDL_PutAudioStreamData(stream,sound->data+next,int(n));
+            next+=n;if(next>=sound->size)next=0;
+        }
+    }
+    void keep(){if(loop)feed();}
     void gain(float amount){if(stream)SDL_SetAudioStreamGain(stream,std::clamp(amount,0.f,1.f));}
 };
 Audio::Audio(const Archives& archives):archives_(archives),loader_(std::make_unique<Loader>(archives.root())) {
     if(!SDL_InitSubSystem(SDL_INIT_AUDIO))fprintf(stderr,"SDL audio: %s\n",SDL_GetError());
 }
-Audio::~Audio() {music_.reset();speech_.reset();voices_.clear();loops_.clear();loader_.reset();SDL_QuitSubSystem(SDL_INIT_AUDIO);}
+Audio::~Audio() {music_.reset();fading_.reset();speech_.reset();voices_.clear();loops_.clear();tracks_.clear();loader_.reset();SDL_QuitSubSystem(SDL_INIT_AUDIO);}
 #else
 // One sound playing: its own winmm device (Windows mixes them); a looping one loops in the device.
 struct Audio::Voice {
@@ -77,7 +154,7 @@ struct Audio::Voice {
     void gain(float amount){if(device){const auto v=DWORD(std::clamp(amount,0.f,1.f)*65535.f);waveOutSetVolume(device,(v<<16)|v);}}
 };
 Audio::Audio(const Archives& archives):archives_(archives),loader_(std::make_unique<Loader>(archives.root())) {}
-Audio::~Audio() {music_.reset();speech_.reset();voices_.clear();loops_.clear();loader_.reset();}
+Audio::~Audio() {music_.reset();fading_.reset();speech_.reset();voices_.clear();loops_.clear();tracks_.clear();loader_.reset();}
 #endif
 Audio::Playback::Playback()=default;
 Audio::Playback::~Playback()=default;
@@ -129,7 +206,7 @@ std::unique_ptr<Audio::Voice> Audio::start(const std::shared_ptr<Sound>& sound,b
     if(!voice->stream){fprintf(stderr,"SDL audio stream: %s\n",SDL_GetError());return nullptr;}
     voice->loop=loop;
     voice->gain(std::getenv("D2MODERN_AUDIO_SILENT")?0.f:gain); // tests: the real device, heard at zero volume
-    SDL_PutAudioStreamData(voice->stream,sound->data,int(sound->size));
+    if(loop)voice->feed();else SDL_PutAudioStreamData(voice->stream,sound->data,int(sound->size));
     if(!loop)SDL_FlushAudioStream(voice->stream); // no more is coming: the resampler lets its last samples out, and the queue empties
     SDL_ResumeAudioStreamDevice(voice->stream);
     return voice;
@@ -149,7 +226,10 @@ std::unique_ptr<Audio::Voice> Audio::start(const std::shared_ptr<Sound>& sound,b
 void Audio::music(const std::string& path) {
     if(path==musicPath_)return;
     if(std::getenv("D2MODERN_SOUND_LOG"))std::cout<<"Music: "<<path<<std::endl;
-    musicPath_=path;music_.reset();
+    musicPath_=path;
+    if(music_){fading_=std::move(music_);fadeStart_=std::chrono::steady_clock::now();}
+    // Only the track playing stays decoded (one is tens of MB); one left is read again if it comes back.
+    std::erase_if(tracks_,[&](const auto& item){return item.second&&item.first!=path;});
     if(!enabled_||!musicEnabled_)return;
     if(path.empty())return;
     // Ready: play it now; otherwise it is read in the background and update() starts it.
@@ -165,42 +245,78 @@ std::shared_ptr<Audio::Sound> Audio::effectSound(const std::string& path) {
     }
     return found->second;
 }
-void Audio::effect(const std::string& path,float gain) {
+void Audio::play(const std::shared_ptr<Sound>& sound,float gain,const std::string& deferKey) {
+    if(!sound||voices_.size()>=24||!enabled_||!effectsEnabled_)return;
+    if(!deferKey.empty())if(const auto it=deferred_.find(deferKey);it!=deferred_.end())
+        for(const auto& voice:voices_)if(voice.get()==it->second&&!voice->done())return; // still playing
+    if(auto voice=start(sound,false,effectsVolume_*gain)) {
+        if(!deferKey.empty())deferred_[deferKey]=voice.get();
+        voices_.push_back(std::move(voice));
+    }
+}
+// Reads and decodes a file on the shared background thread; done runs in update() (a sound is null when missing).
+void Audio::readInBackground(const std::string& file,std::function<void(std::shared_ptr<Sound>)> done) {
+    if(!background_)background_=BackgroundReads::shared(archives_.root());
+    background_->queue(this,[file,done=std::move(done),life=std::weak_ptr<char>(life_)](const Archives& archives)->BackgroundReads::Done {
+        std::shared_ptr<Sound> sound=std::make_shared<Sound>();
+        try {if(!decode(archives.read(file),*sound))sound.reset();} catch(const std::exception&) {sound.reset();}
+        return [done,sound,life]{if(!life.expired())done(sound);};
+    });
+}
+void Audio::effect(const std::string& path,float gain) {effect(path,gain,std::string());}
+void Audio::effect(const std::string& path,float gain,const std::string& deferKey) {
     // D2MODERN_SOUND_LOG: each effect asked for (even while muted), for checking which sounds fire without listening.
     static const bool log=std::getenv("D2MODERN_SOUND_LOG")!=nullptr;
     if(log)std::cout<<"Sound: "<<path<<std::endl;
     if(!enabled_||!effectsEnabled_)return;
-    const auto sound=effectSound(path);
-    if(!sound||voices_.size()>=24)return;
-    if(auto voice=start(sound,false,effectsVolume_*gain))voices_.push_back(std::move(voice));
+    if(const auto found=cache_.find(path);found!=cache_.end()){play(found->second,gain,deferKey);return;}
+    auto& list=waiting_[path];
+    const bool queued=!list.empty();
+    list.push_back({gain,deferKey,std::chrono::steady_clock::now()});
+    if(queued)return;
+    readInBackground(std::string("data\\global\\sfx\\")+path,[this,path](std::shared_ptr<Sound> sound) {
+        cache_.emplace(path,sound);
+        auto found=waiting_.find(path);if(found==waiting_.end())return;
+        const auto list=std::move(found->second);waiting_.erase(found);
+        const auto now=std::chrono::steady_clock::now();
+        for(const auto& w:list)if(now-w.asked<std::chrono::milliseconds(250))play(sound,w.gain,w.deferKey);
+    });
 }
 void Audio::startLoop(const std::string& key,const std::string& path,float gain) {
     static const bool log=std::getenv("D2MODERN_SOUND_LOG")!=nullptr;
-    if(loops_.count(key))return;
+    if(loops_.count(key)||loopsWaiting_.count(key))return;
     if(log)std::cout<<"Loop: "<<path<<std::endl;
-    const auto sound=effectSound(path);
-    if(!enabled_||!effectsEnabled_||!sound){loops_[key]=nullptr;return;}
-    loops_[key]=start(sound,true,effectsVolume_*gain);
+    auto begin=[this,key,gain](const std::shared_ptr<Sound>& sound){loops_[key]=enabled_&&effectsEnabled_&&sound?start(sound,true,effectsVolume_*gain):nullptr;};
+    if(const auto found=cache_.find(path);found!=cache_.end()){begin(found->second);return;}
+    loopsWaiting_[key]={path,gain};
+    readInBackground(std::string("data\\global\\sfx\\")+path,[this,key,path,begin](std::shared_ptr<Sound> sound) {
+        cache_.emplace(path,sound);
+        // Still wanted (not stopped, nor stopped and started again with another sound).
+        if(const auto found=loopsWaiting_.find(key);found!=loopsWaiting_.end()&&found->second.first==path){loopsWaiting_.erase(found);begin(sound);}
+    });
 }
 void Audio::loopGain(const std::string& key,float gain) {
     if(const auto found=loops_.find(key);found!=loops_.end()&&found->second&&!std::getenv("D2MODERN_AUDIO_SILENT"))found->second->gain(effectsVolume_*gain);
 }
 void Audio::stopLoop(const std::string& key) {
+    loopsWaiting_.erase(key);
     if(loops_.erase(key)&&std::getenv("D2MODERN_SOUND_LOG"))std::cout<<"Loop stopped: "<<key<<std::endl;
 }
 void Audio::speech(const std::string& path) {
     static const bool log=std::getenv("D2MODERN_SOUND_LOG")!=nullptr;
     if(log)std::cout<<"Speech: "<<path<<std::endl;
     speech_.reset();speechSeconds_=0;
+    const uint64_t asked=++speechAsked_;
     if(path.empty())return;
     // Read when spoken (a speech is heard once, a megabyte or two), not cached. Its length is known even when muted (the
     // speech text scrolls with it).
-    auto sound=std::make_shared<Sound>();
-    try {if(!decode(archives_.read(std::string("data\\local\\sfx\\")+path),*sound))return;} catch(const std::exception&) {return;}
-    speechSeconds_=double(sound->size)/(double(sound->rate)*sound->channels*(sound->bits/8));
-    if(enabled_&&effectsEnabled_)speech_=start(sound,false,effectsVolume_);
+    readInBackground(std::string("data\\local\\sfx\\")+path,[this,asked](std::shared_ptr<Sound> sound) {
+        if(asked!=speechAsked_||!sound)return;
+        speechSeconds_=double(sound->size)/(double(sound->rate)*sound->channels*(sound->bits/8));
+        if(enabled_&&effectsEnabled_)speech_=start(sound,false,effectsVolume_);
+    });
 }
-void Audio::stopSpeech() {speech_.reset();}
+void Audio::stopSpeech() {speech_.reset();++speechAsked_;}
 std::unique_ptr<Audio::Playback> Audio::playPcm(Bytes pcm,uint32_t rate,uint16_t channels,double startSeconds) {
     if(!enabled_||!musicEnabled_||pcm.empty()||!rate||!channels)return {};
     constexpr uint16_t bits=16;
@@ -217,9 +333,16 @@ std::unique_ptr<Audio::Playback> Audio::playPcm(Bytes pcm,uint32_t rate,uint16_t
     return playback->voice?std::move(playback):nullptr;
 }
 void Audio::update() {
+    if(background_)background_->pump(this);
     for(size_t i=0;i<voices_.size();) {if(voices_[i]->done())voices_.erase(voices_.begin()+long(i));else ++i;}
     if(speech_&&speech_->done())speech_.reset();
     if(music_)music_->keep();
+    for(auto& [key,voice]:loops_)if(voice)voice->keep();
+    if(fading_) {
+        const float t=std::chrono::duration<float>(std::chrono::steady_clock::now()-fadeStart_).count();
+        if(t>=1.f||std::getenv("D2MODERN_AUDIO_SILENT"))fading_.reset();
+        else{fading_->gain(musicVolume_*(1.f-t));fading_->keep();}
+    }
     // Music tracks the loader finished: kept, and the one wanted now starts playing.
     std::vector<std::pair<std::string,std::shared_ptr<Sound>>> arrived;
     {std::lock_guard<std::mutex> hold(loader_->lock);arrived.swap(loader_->ready);}
@@ -231,7 +354,7 @@ void Audio::update() {
 }
 void Audio::setEnabled(bool enabled) {
     if(enabled_==enabled)return;
-    if(!enabled){enabled_=false;music_.reset();speech_.reset();voices_.clear();loops_.clear();return;}
+    if(!enabled){enabled_=false;music_.reset();fading_.reset();speech_.reset();voices_.clear();loops_.clear();return;}
     const auto track=musicPath_;musicPath_.clear();enabled_=true;
     if(!track.empty())music(track);
 }
@@ -239,7 +362,7 @@ void Audio::setMusicEnabled(bool enabled) {
     if(musicEnabled_==enabled)return;
     musicEnabled_=enabled;
     const auto track=musicPath_;
-    music_.reset();
+    music_.reset();fading_.reset();
     if(enabled_&&musicEnabled_&&!track.empty()) {
         musicPath_.clear();
         music(track);

@@ -1,6 +1,7 @@
 // DCC algorithm adapted from Diablerie by Alexander Egorov (MIT).
 // See ../external/Diablerie-LICENSE and ../external/Diablerie-NOTICE.md.
 #include "Assets.h"
+#include "AssetTiming.h"
 #include <algorithm>
 #include <bit>
 #include <limits>
@@ -30,6 +31,7 @@ std::vector<int> partitions(int offset,int length) {
 }
 }
 Animation decodeDcc(std::span<const uint8_t> b,const Palette& palette) {
+    AssetTimer timing(AssetStage::Dcc);
     require(b.size()>=15&&b[0]==0x74&&b[1]==6,"Unsupported or truncated DCC header");
     Bits header{b,16,b.size()*8};Animation result;result.directions=header.read(8);result.framesPerDirection=header.read(32);
     require(result.directions&&result.directions<=32&&result.framesPerDirection&&result.framesPerDirection<=256,"DCC animation count exceeds limit");

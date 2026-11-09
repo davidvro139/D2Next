@@ -166,6 +166,7 @@ static void DATATBLS_EvaluateBinaryOperator(Fog64IntStack* pCalcStack, FOGASTTyp
 
 //1.10f: 0x6FF51E30 (#10253)
 //1.13c: 0x6FF69E90 (#10253)
+//1.14d: 0x006C0BC0
 int __stdcall DATATBLS_CalcEvaluateExpression(const FOGASTNodeStrc* pExpressionBuffer, int32_t nExpressionBufferSize, CalcFogCallBack2_t fpParamCallBack, D2CalcCallbackInfoStrc* pTableData, int nTableSize, void* pUserData)
 {
 	if (nExpressionBufferSize <= 0)
@@ -555,7 +556,8 @@ static const char* DATATABLS_ParseSubExpression(const char* szExpression, FOGExp
 	// Function call ?
 	if (*szExpression == '(')
 	{
-		if (const int nFunctionId = pfnFunctionNameToId(tSubExpressionBuffer))
+		// The keyword mappers return -1 for an unknown name; 0 is a function too (min).
+		if (const int nFunctionId = pfnFunctionNameToId(tSubExpressionBuffer); nFunctionId >= 0)
 		{
 			*pOutTokenType = TOKEN_CUSTOM_FUNCTION_TABLE;
 			*pTokenAssociatedValue = nFunctionId;

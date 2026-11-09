@@ -1,8 +1,10 @@
 #pragma once
 #include <cstdint>
 namespace d2::native {
-// Local Windows x64 helper protocol v20, fixed-width little-endian words.
+// Local Windows x64 helper protocol v21, fixed-width little-endian words.
 inline constexpr uint32_t magic=0x44474d4B;
+// States as bits: room for 256 (the game's packets carry a state id in one byte; vanilla 1.10f has 184, mods more).
+inline constexpr uint32_t stateCount=256,stateWords=stateCount/32;
 enum class Operation:uint32_t { Tick, Walk, Quit, Attack, Respawn, Pickup, Packet, Cheat };
 // Packet: x = client packet header | size << 8, y..v = the packet body as little-endian words (inventory operations).
 // Walk: x/y = world destination; z = 0 walk (0x01), 1 run (0x03).
@@ -14,7 +16,7 @@ struct Unit {
     int32_t life{},maxLife{}; // whole life points
     int32_t x{},y{}; // absolute 16.16 subtile coordinates, copied from native path
     uint32_t flags{}; // bit 0: town person / interactive, bit 1: dead, bit 2: sells items, bit 3: gambles, bit 4: a missile (classId indexes missiles.txt). A missile's life is its remaining frame (counts down; 0 or 1 is the end of its range), maxLife its skill id, and name the owner's unit id.
-    uint32_t states[6]{}; // the unit's states (states.txt rows 0..191) as bits: auras, curses, armours, chill...
+    uint32_t states[stateWords]{}; // the unit's states (states.txt rows) as bits: auras, curses, armours, chill...
     // Monsters: MONTYPEFLAG_* (2 superunique, 4 champion, 8 unique, 16 minion, 64 ghostly...), the colour transform (the
     // monster's palshift.dat map, 0 none, else index + 1), the special abilities (monumod.txt ids), the name (a random
     // unique's prefix, suffix and appellation string ids, a superunique's name string id first) and the COF components.
@@ -32,7 +34,9 @@ struct Unit {
     uint32_t lookClass{0xFFFFFFFF},lookMode{},look[17]{};
     // Another player (unitPlayer) in the sequence mode (18: Charge, Whirlwind, Leap...): the mode and frame D2Common's
     // sequence table draws now (255 none), the skill it is using, and its path type (9: Leap's flight), so it is drawn
-    // the way this player's own character is.
+    // the way this player's own character is. Monsters in mode 14 carry the
+    // mode/frame already computed by D2Common from MonSeq in these same fields;
+    // a player-shaped monster's mode is converted by #11013 to its visual mode.
     uint8_t sequenceMode{255},sequenceFrame{};uint16_t usedSkill{};
     uint32_t pathType{};
     // Where its path is going (whole absolute subtiles, the path's final target; 0 none): what the original client turns a
@@ -42,7 +46,7 @@ struct Unit {
 // An item the native game knows: on the ground, in the inventory, equipped or in the belt (mode = native item mode).
 // One stat of an item (itemstatcost.txt row, its parameter: a skill, a class..., and its value as the game holds it).
 struct ItemStat {uint16_t id{},param{};int32_t value{};};
-inline constexpr uint32_t maxItemStats=32;
+inline constexpr uint32_t maxItemStats=64;
 struct Item {
     uint32_t guid{},classId{},code{},mode{};
     int32_t x{},y{}; // ground: absolute subtile; stored: grid cell; equipped: body location
@@ -91,7 +95,7 @@ inline constexpr uint32_t maxHirelings=10;
 // The player's own hireling as its panel shows it (D2Client 0x6FAEDA20 reads these stats of the unit): guid 0 when there is
 // none. Life in whole points; resist: fire, cold, lightning, poison; the base strength and dexterity (blue when items raise them).
 struct HirelingSheet {uint32_t guid{},name{};int32_t level{},experience{},nextExperience{},strength{},dexterity{},life{},maxLife{},defense{},minDamage{},maxDamage{},resist[4]{},baseStrength{},baseDexterity{};};
-inline constexpr uint32_t unitTownPerson=1,unitDead=2,unitVendor=4,unitGambler=8,unitMissile=16,unitPlayer=32,maxUnits=192,maxItems=128,maxServerBytes=16384,maxSkills=64,statCount=32,maxObjects=192;
+inline constexpr uint32_t unitTownPerson=1,unitDead=2,unitVendor=4,unitGambler=8,unitMissile=16,unitPlayer=32,maxUnits=192,maxItems=256,maxServerBytes=16384,maxSkills=128,statCount=32,maxObjects=192;
 // What the character sheet shows beyond the plain stats, worked out by the game's rules (D2Common and D2Game's damage code).
 struct Sheet {
     int32_t damageMin{},damageMax{}; // the weapon's (or bare hands') damage with strength/dexterity, mastery and item bonuses
@@ -130,7 +134,7 @@ struct Reply {
     Skill skills[maxSkills]{};
     uint32_t objectCount{};
     Object objects[maxObjects]{};
-    uint32_t playerStates[6]{}; // the player's states (as Unit::states)
+    uint32_t playerStates[stateWords]{}; // the player's states (as Unit::states)
     Sheet sheet;
     // For the item on the cursor, D2Common #10299 at each body location (index 1 head .. 10 gloves, 11/12 the swap hands),
     // which D2Client 1.10f switches on when the item is put there: 0 not allowed, 1 equip (0x1A), 2 the other hand's item
@@ -153,5 +157,14 @@ struct Reply {
     uint32_t ownedSetItemCount{};uint16_t ownedSetItems[maxOwnedSetItems]{};
     int32_t goldLost{}; // stat 175 (goldlost): what the last death cost, shown under "You have died" (D2Client 0x6FB22461)
 };
-static_assert(sizeof(HirelingSheet)==72&&sizeof(Hireling)==32&&sizeof(Request)==28&&sizeof(Unit)==188&&sizeof(Item)==412&&sizeof(Sheet)==100&&sizeof(Reply)==196+maxUnits*188+maxItems*412+maxServerBytes+statCount*4+12+maxSkills*16+4+maxObjects*24+24+100+16+32+8+4+maxHirelings*32+72+6*136+4+maxOwnedSetItems*2+4);
+static_assert(sizeof(HirelingSheet)==72&&sizeof(Hireling)==32&&sizeof(Request)==28&&sizeof(Unit)==196&&sizeof(Item)==668&&sizeof(Sheet)==100&&sizeof(Reply)==196+maxUnits*196+maxItems*668+maxServerBytes+statCount*4+12+maxSkills*16+4+maxObjects*24+stateWords*4+100+16+32+8+4+maxHirelings*32+72+6*136+4+maxOwnedSetItems*2+4);
+// External helper negotiation precedes session creation and every snapshot byte.
+// A distinct signature rejects a legacy raw Reply prefix immediately.
+struct Hello {uint32_t signature=0x32484E44,version=22,requestBytes=sizeof(Request),replyBytes=sizeof(Reply);};
+static_assert(sizeof(Hello)==16);
+inline bool compatible(const Hello& remote) {
+    const Hello local;
+    return remote.signature==local.signature&&remote.version==local.version
+        &&remote.requestBytes==local.requestBytes&&remote.replyBytes==local.replyBytes;
+}
 }

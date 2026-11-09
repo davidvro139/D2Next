@@ -52,6 +52,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
   # On x86 the original DLL is used, so none of this is compiled there.
   target_sources(${FogImplName}
     PRIVATE
+      src/x64/BinFile.cpp
       src/x64/File.cpp
       src/x64/Linker.cpp
       src/x64/Log.cpp

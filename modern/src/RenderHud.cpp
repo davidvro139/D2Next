@@ -690,7 +690,7 @@ void Renderer::buildHud(std::vector<d2::HudSprite>& hud) {
                 if(largerForTouch)scaledLabel(npcName,x+w*.5f,y+10*scale,235,215,140);
                 else label(npcName,x+w*.5f,y+10,235,215,140,true);
                 const double elapsed=double(nowMilliseconds()-npcDialog.talkStart)/1000.0;
-                const float progress=float(std::clamp(elapsed/std::max(0.1,npcDialog.talkSeconds),0.0,1.0));
+                const float progress=npcDialog.talkWaitingVoice?0.f:float(std::clamp(elapsed/std::max(0.1,npcDialog.talkSeconds),0.0,1.0));
                 const float first=areaTop+areaHeight-progress*(rowHeight*float(shown.size())+areaHeight);
                 for(size_t i=0;i<shown.size();++i) {
                     const float ty=first+rowHeight*float(i);

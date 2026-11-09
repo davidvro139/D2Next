@@ -57,7 +57,7 @@ public:
     Screen screen() const {return screen_;}
     bool quit() const {return quit_;}
     void showMainMenu(){screen_=Screen::MainMenu;} // back from a game: the main menu, not the title screen
-    void showCharacterSelect(){screen_=Screen::CharacterSelect;} // tests: straight to the characters
+    void showCharacterSelect(){screen_=Screen::CharacterSelect;lan_=Lan::None;} // tests, and back from Save and Exit Game
     void showCredits(){screen_=Screen::Credits;}                 // tests: the credits
     void setMovieAudioPlayer(MovieAudioPlayer player){movieAudioPlayer_=std::move(player);}
     void setSoundPlayer(SoundPlayer player){soundPlayer_=std::move(player);}
@@ -70,7 +70,9 @@ public:
     void showLanMessage(const std::string& message={});
     Lan lan() const {return lan_;}
     const std::string& lanAddress() const {return ipText_;}
-    bool wantsText() const {return screen_==Screen::CreateCharacter||(ipPopup_&&ipFieldFocused_);} // typing: a character name, or an address after tapping the box
+    // Typing: a character name once a class is chosen (the name box shows then; before, an on-screen keyboard would cover
+    // the heroes), or an address after tapping the box.
+    bool wantsText() const {return (screen_==Screen::CreateCharacter&&newClass_>=0)||(ipPopup_&&ipFieldFocused_);}
     // The character to play once the player has chosen one (the screen is then Loading), else null.
     const SavedCharacter* chosen() const {return screen_==Screen::Loading&&selected_<int(characters_.size())?&characters_[size_t(selected_)]:nullptr;}
     int difficulty() const {return difficulty_;} // the one chosen for it: 0 Normal, 1 Nightmare, 2 Hell

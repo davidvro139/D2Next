@@ -12,7 +12,7 @@
 #define MOCK_EXPORT
 #define MOCK_NET_BEGIN
 #define MOCK_NET_END
-using MockCallback = D2NET_Unk_Callback;
+using MockCallback = D2NET_RemoveClientCallback;
 #else
 #define MOCK_EXPORT __declspec(dllexport)
 #define MOCK_NET_BEGIN extern "C" {
@@ -63,29 +63,29 @@ int readList(int list, uint8_t* buffer, int size)
 #else
 #define EXPORT_ORDINAL(name, ordinal, bytes) __pragma(comment(linker, "/EXPORT:" #name "=_" #name "@" #bytes ",@" #ordinal ",NONAME"))
 #endif
-EXPORT_ORDINAL(D2NET_10006, 10006, 16)
-EXPORT_ORDINAL(SERVER_ReadFromMessageList1, 10010, 8)
-EXPORT_ORDINAL(SERVER_ReadFromMessageList0, 10011, 8)
-EXPORT_ORDINAL(SERVER_ReadFromMessageList2, 10012, 8)
+EXPORT_ORDINAL(SERVER_SendPacketToClient, 10006, 16)
+EXPORT_ORDINAL(SERVER_ReadGamePacket, 10010, 8)
+EXPORT_ORDINAL(SERVER_ReadSystemPacket, 10011, 8)
+EXPORT_ORDINAL(SERVER_ReadAdminPacket, 10012, 8)
 EXPORT_ORDINAL(SERVER_GetIpAddressStringFromClientId, 10014, 12)
 EXPORT_ORDINAL(D2NET_10015, 10015, 12)
 EXPORT_ORDINAL(D2NET_10016, 10016, 4)
-EXPORT_ORDINAL(D2NET_10019, 10019, 4)
+EXPORT_ORDINAL(SERVER_SetRemoveClientCallback, 10019, 4)
 EXPORT_ORDINAL(SERVER_SetClientGameGUID, 10020, 8)
 EXPORT_ORDINAL(SERVER_GetClientGameGUID, 10021, 4)
 EXPORT_ORDINAL(SERVER_WSAGetLastError, 10024, 0)
 
 MOCK_NET_BEGIN
-uint32_t __stdcall D2NET_10006(int8_t list, int32_t client, void* buffer, uint32_t size)
+uint32_t __stdcall SERVER_SendPacketToClient(int8_t list, int32_t client, void* buffer, uint32_t size)
 {
     std::lock_guard<std::mutex> lock(gMutex);
     Sent sent{list, client, std::vector<uint8_t>(static_cast<uint8_t*>(buffer), static_cast<uint8_t*>(buffer) + size)};
     gSent.push_back(std::move(sent));
     return size;
 }
-int32_t __stdcall SERVER_ReadFromMessageList1(uint8_t* buffer, int32_t size) { return readList(1, buffer, size); }
-int32_t __stdcall SERVER_ReadFromMessageList0(uint8_t* buffer, int32_t size) { return readList(0, buffer, size); }
-int32_t __stdcall SERVER_ReadFromMessageList2(uint8_t* buffer, int32_t size) { return readList(2, buffer, size); }
+int32_t __stdcall SERVER_ReadGamePacket(uint8_t* buffer, int32_t size) { return readList(1, buffer, size); }
+int32_t __stdcall SERVER_ReadSystemPacket(uint8_t* buffer, int32_t size) { return readList(0, buffer, size); }
+int32_t __stdcall SERVER_ReadAdminPacket(uint8_t* buffer, int32_t size) { return readList(2, buffer, size); }
 void __stdcall SERVER_GetIpAddressStringFromClientId(int32_t, char* buffer, int32_t size)
 {
     if (size > 9)
@@ -101,7 +101,7 @@ void __stdcall D2NET_10016(int32_t client)
     std::lock_guard<std::mutex> lock(gMutex);
     gSent.push_back({-2, client, {}}); // list -2: the server flushed this client
 }
-int32_t __stdcall D2NET_10019(MockCallback) { return 1; }
+int32_t __stdcall SERVER_SetRemoveClientCallback(MockCallback) { return 1; }
 int32_t __stdcall SERVER_SetClientGameGUID(int32_t client, int32_t guid)
 {
     std::lock_guard<std::mutex> lock(gMutex);
